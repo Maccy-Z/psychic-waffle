@@ -1,0 +1,8 @@
+matplotlib
+numpy
+pandas
+scipy
+
+git+https://github.com/rtqichen/torchdiffeq
+git+https://github.com/cornellius-gp/linear_operator.git
+git+https://github.com/cornellius-gp/gpytorch.git
