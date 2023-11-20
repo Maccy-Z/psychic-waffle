@@ -2,6 +2,7 @@ matplotlib
 numpy
 pandas
 scipy
+torch
 
 git+https://github.com/rtqichen/torchdiffeq
 git+https://github.com/cornellius-gp/linear_operator.git
