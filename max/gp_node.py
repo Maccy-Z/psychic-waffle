@@ -19,6 +19,8 @@ class GPModel(torch.nn.Module):
         perturb_mag = torch.zeros(self.n_perturb)
         if perturb_0 is not None:
             perturb_mag[5] = torch.tensor(perturb_0)
+            perturb_mag[0] = torch.tensor(perturb_0)
+
         self.perturb_mag = torch.nn.Parameter(perturb_mag)
 
         # self.plot_perturbed()
@@ -82,7 +84,7 @@ def test_model(t_eval, perturb_0=None):
                     )
 
     if perturb_0 is None:
-        model.predict_and_plot(torch.linspace(-1, 1, 50))
+        # model.predict_and_plot(torch.linspace(-1, 1, 50))
 
         # Find gradient of objective w.r.t. F(t, x)
         # objective = y_pred[-1, 0]
@@ -96,11 +98,11 @@ def test_model(t_eval, perturb_0=None):
         dydf = torch.autograd.grad(y_pred[-1, 0], init_point, create_graph=True, retain_graph=True)[0]
         print(f'{dydf = }')
 
-        d2ydf2 = torch.autograd.grad(dydf[5], init_point, create_graph=True, retain_graph=True)[0]
+        d2ydf2 = torch.autograd.grad(dydf[0], init_point, create_graph=True, retain_graph=True)[0]
         print(f'{d2ydf2 = }')
 
-        d3ydf3 = torch.autograd.grad(d2ydf2[5], init_point)[0]
-        print(f'{d3ydf3 = }')
+        # d3ydf3 = torch.autograd.grad(d2ydf2[5], init_point)[0]
+        # print(f'{d3ydf3 = }')
 
 
     # with torch.no_grad():

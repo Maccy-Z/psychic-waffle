@@ -1,10 +1,12 @@
+import math
+
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
 
 xs = torch.linspace(-0.1, 0.1, 21)
 dys = \
-    [0.0223, 0.0202, 0.0181, 0.016, 0.0139, 0.0117, 0.00942, 0.00714, 0.00481, 0.00243, 0, -0.00249, -0.00506, -0.00769, -0.0104, -0.0132, -0.0161, -0.0191, -0.0222, -0.0254, -0.0288, ]
+    [0.128, 0.125, 0.122, 0.118, 0.112, 0.103, 0.0896, 0.0711, 0.0483, 0.0237, 0, -0.0208, -0.0378, -0.051, -0.0607, -0.0674, -0.0716, -0.0737, -0.0741, -0.0733, -0.0717, ]
 
 
 def estimate_nth_derivative(xs, ys, n):
@@ -44,6 +46,7 @@ def estimate_nth_derivative(xs, ys, n):
 
     return derivatives
 
+
 deriv_ests = estimate_nth_derivative(xs, dys, 1)
 d2_ests = estimate_nth_derivative(xs, dys, 2)
 d3_ests = estimate_nth_derivative(xs, dys, 3)
@@ -51,19 +54,18 @@ print(deriv_ests[10])
 print(d2_ests[10])
 print(d3_ests[10])
 
-c1 = -0.2464
-c2 = -6.0647e-01 * 0.5
-c3 = -5.1439 * 1/6
+c1 = -1.9984 - 0.2464
+c2 = (2 * 9.1851e+00 + -6.0647e-01 + 12.4250)
+c3 = -5.1439 * 1 / 6
 
-cs = [c1, c2, c3]
+print(f'{c1 = }, {c2 = }, {c3 = }')
+cs = [c1, c2, ]
 
 dys_pred = torch.zeros_like(torch.tensor(dys))
-for i in range(3):
-    dys_pred += cs[i] * xs ** (i+1) # + c2 * xs ** 2 # + c3 * xs ** 3
+for i in range(2):
+    dys_pred += cs[i] * xs ** (i + 1) / math.factorial(i + 1) # + c2 * xs ** 2 # + c3 * xs ** 3
 
-    plt.title(f'{i+1} order')
+    plt.title(f'{i + 1} order')
     plt.plot(xs, dys)
     plt.plot(xs, dys_pred)
     plt.show()
-
-
