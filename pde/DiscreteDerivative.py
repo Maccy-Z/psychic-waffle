@@ -255,14 +255,6 @@ class PDEGridClosed(PDEGrid):
         :param N: Number of points PDE is enforced at
         :param dirichlet_bc: Dict of {'left'/'right': Value at bc}. Set inside the grid
         :param neuman_bc: Dict of {'left'/'right': Value at bc}. Set outside the grid
-
-        Add on extra terms at end of grid so derivatives can be taken at the boundary if needed.
-        PDE is constrained at N middle points (u0 - un-1), but derivatives are taken at N - N_boundary points.
-        Format of grid:
-            Only dirichlet:                 [E, u0=DL, u1,..., un-1=DR, E]
-            Dirichlet and Neuman on left:   [NL, u0=DL, u1,..., un-1, E]
-            Dirichlet left, Neuman right:   [E, u0=DL, u1,..., un-1, NR]
-            Neuman only:                    [NL, u0, u1,..., un-1, NR]
         """
         super().__init__(X_grid, dirichlet_bc, neuman_bc, device)
 
