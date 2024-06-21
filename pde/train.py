@@ -1,10 +1,9 @@
 import torch
 import math
-from matplotlib import pyplot as plt
 from pde_solve import PDESolver
 from PDE_functions import PDE_forward, PDE_adjoint, Loss_fn
-from DiscreteDerivative import PDEGridOpen, PDEGridClosed, PointGrid
-
+from U_grid import UGrid, UGridOpen1D, UGridClosed #PDEGridOpen, PDEGridClosed, PointGrid
+from X_grid import XGrid
 
 class Trainer:
     dfdtheta: torch.Tensor = None
@@ -15,11 +14,11 @@ class Trainer:
         # Init finite difference grids and solutions
         Xmin, Xmax = 0, 2 * math.pi
         N = 100
-        X_grid = PointGrid(Xmin, Xmax, N, device=device)
+        X_grid = XGrid(Xmin, Xmax, N, device=device)
 
         self.X_grid = X_grid
-        self.u_grid = PDEGridOpen(X_grid, dirichlet_bc={'x0_lower': 0}, neuman_bc={'x0_lower': 1}, device=device)
-        self.a_grid = PDEGridClosed(X_grid, dirichlet_bc={'x0_upper': 0}, neuman_bc={'x0_upper': 0}, device=device)
+        self.u_grid = UGridOpen1D(X_grid, dirichlet_bc={'x0_lower': 0}, neuman_bc={'x0_lower': 1}, device=device)
+        self.a_grid = UGridClosed(X_grid, dirichlet_bc={'x0_upper': 0}, neuman_bc={'x0_upper': 0}, device=device)
 
         # PDE forward and adjoint functions
         self.pde_fwd = PDE_forward(self.u_grid)
@@ -42,7 +41,7 @@ class Trainer:
     def fit_forward(self):
         self.fwd_solver.train_newton()
 
-        xs, us = self.u_grid.get_real()
+        us, xs = self.u_grid.get_real_u_x()
         return xs, us
 
     def fit_adjoint(self):
@@ -87,9 +86,9 @@ def main():
     trainer = Trainer(device='cuda')
     optim = torch.optim.Adam(trainer.parameters(), lr=0.05)
 
-    for _ in range(100):
-        print()
-        xs, us = trainer.fit_forward()
+    for i in range(100):
+        print(i)
+        us, xs = trainer.fit_forward()
         trainer.fit_adjoint()
         dLdtheta = trainer.backward()
 

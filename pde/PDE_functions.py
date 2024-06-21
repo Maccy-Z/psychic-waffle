@@ -2,7 +2,9 @@ import torch
 import abc
 import math
 
-from DiscreteDerivative import DerivativeCalc1D, PDEGrid, PointGrid, PDEGridClosed
+from DiscreteDerivative import DerivativeCalc1D
+from U_grid import UGrid, UGridOpen1D, UGridClosed1D
+from X_grid import XGrid
 
 
 class PDE_func(abc.ABC):
@@ -18,7 +20,7 @@ class PDE_func(abc.ABC):
 
 
 class PDE_forward(PDE_func):
-    def __init__(self, u_grid: PDEGrid):
+    def __init__(self, u_grid: UGrid):
         self.u_grid = u_grid
         self.derivative_calculator = DerivativeCalc1D(self.u_grid.dx, order=2, device=u_grid.device)
 
@@ -76,7 +78,7 @@ class PDE_forward(PDE_func):
 
 
 class PDE_adjoint(PDE_func):
-    def __init__(self, u_grid: PDEGrid, a_grid: PDEGridClosed):
+    def __init__(self, u_grid: UGrid, a_grid: UGridClosed1D):
         self.u_grid = u_grid
         self.a_grid = a_grid
         self.derivative_calculator = DerivativeCalc1D(self.u_grid.dx, order=2, device=u_grid.device)
@@ -110,7 +112,7 @@ class PDE_adjoint(PDE_func):
 
 
 class Loss_fn:
-    def __init__(self, X_grid: PointGrid, true_us: torch.Tensor):
+    def __init__(self, X_grid: XGrid, true_us: torch.Tensor):
         """
         :param xs: Positions where loss is taken at
         :param true_us: Value of us at xs

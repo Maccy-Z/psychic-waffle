@@ -3,9 +3,9 @@ numpy
 pandas
 scipy
 torch
-xitorch
-findiff
+# xitorch
+# findiff
 
 git+https://github.com/rtqichen/torchdiffeq
-git+https://github.com/cornellius-gp/linear_operator.git
-git+https://github.com/cornellius-gp/gpytorch.git
+torch
+git+https://github.com/Maccy-Z/c_print.git

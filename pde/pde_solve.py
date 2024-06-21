@@ -1,5 +1,6 @@
-from DiscreteDerivative import DerivativeCalc1D, PDEGrid, PointGrid
-from PDE_functions import PDE_forward, PDE_adjoint, PDE_func
+from U_grid import UGrid
+from X_grid import XGrid
+from PDE_functions import PDE_func
 import torch
 from matplotlib import pyplot as plt
 import math
@@ -17,7 +18,7 @@ class PDESolver:
         PDE(u_i-1, u_i, u_i+1) = 0 for i = 1, ..., N
     """
 
-    def __init__(self, pde_func: PDE_func, sol_grid: PDEGrid, N_iter: int, lr=1., device='cpu'):
+    def __init__(self, pde_func: PDE_func, sol_grid: UGrid, N_iter: int, lr=1., device='cpu'):
         self.pde_func = pde_func
         self.N_iter = N_iter
         self.sol_grid = sol_grid
@@ -25,7 +26,6 @@ class PDESolver:
 
         self.device = device
         self.solve_acc = 1e-4
-        # self.u_grid = PDEGrid(Xmin, Xmax, N, dirichlet_bc=dirichlet_bc, neuman_bc=neuman_bc, device=self.device)  # Use 2 extra points on boundary for Neuman BC
 
     def train_newton(self, extra=None):
         """
@@ -57,11 +57,10 @@ class PDESolver:
                     print(i)
                     break
 
-
-        #print("Final values:", self.sol_grid.get_with_bc().cpu())
+        # print("Final values:", self.sol_grid.get_with_bc().cpu())
 
     def plot(self, title=None):
-        us, xs = self.sol_grid.get_real()
+        us, xs = self.sol_grid.get_real_u_x()
         plt.plot(xs.cpu(), us.cpu().numpy())
         if title is not None:
             plt.title(title)
@@ -71,7 +70,9 @@ class PDESolver:
 def main():
     Xmin, Xmax = 0, 2 * math.pi
     N = 20
-    X_grid = PointGrid(Xmin, Xmax, N, device='cuda')
+    X_grid = XGrid(Xmin, Xmax, N, device='cuda')
+
+    print(X_grid)
 
 
 if __name__ == "__main__":

@@ -1,16 +1,27 @@
-from findiff import FinDiff
-import numpy as np
-from matplotlib import pyplot as plt
+import torch
 
-np.set_printoptions(precision=3)
+from X_grid import XGrid1D, XGrid2D
+from U_grid import UGridOpen1D
+from PDE_functions import PDE_forward
+from pde_solve import PDESolver
+from utils import show_grid
 
-x = np.linspace(-np.pi, np.pi, 100)
-dx = x[1] - x[0]
-f = np.sin(x)
+xmin, xmax = torch.tensor([0, 0]), torch.tensor([1, 1])
 
-d_dx = FinDiff(0, dx)
-df_dx = d_dx(f)
+Xs_grid = XGrid2D(xmin, xmax, 0.2)
+print(Xs_grid)
+show_grid(Xs_grid.Xs[..., 1])
+exit(7)
 
-plt.plot(f)
-plt.plot(df_dx)
-plt.show()
+us_grid = UGridOpen1D(Xs_grid, dirichlet_bc={'x0_lower': 0}, neuman_bc={'x0_lower': 1})
+
+pde_fn = PDE_forward(us_grid)
+
+solver = PDESolver(pde_fn, us_grid, N_iter=40, lr=2)
+
+solver.train_newton()
+
+u, x = us_grid.get_real_u_x()
+
+show_grid(u)
+print(Xs_grid)
