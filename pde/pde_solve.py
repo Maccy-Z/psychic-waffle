@@ -1,4 +1,4 @@
-from U_grid import UGrid
+from U_grid import UGrid1D
 from X_grid import XGrid
 from PDE_functions import PDE_func
 import torch
@@ -18,7 +18,7 @@ class PDESolver:
         PDE(u_i-1, u_i, u_i+1) = 0 for i = 1, ..., N
     """
 
-    def __init__(self, pde_func: PDE_func, sol_grid: UGrid, N_iter: int, lr=1., device='cpu'):
+    def __init__(self, pde_func: PDE_func, sol_grid: UGrid1D, N_iter: int, lr=1., device='cpu'):
         self.pde_func = pde_func
         self.N_iter = N_iter
         self.sol_grid = sol_grid

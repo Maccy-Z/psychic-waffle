@@ -3,11 +3,11 @@ import abc
 import math
 
 from DiscreteDerivative import DerivativeCalc1D
-from U_grid import UGrid, UGridOpen1D, UGridClosed1D
+from U_grid import UGrid1D, UGridOpen1D, UGridClosed1D
 from X_grid import XGrid
 
 
-class PDE_func(abc.ABC):
+class PDEHandler(abc.ABC):
     @abc.abstractmethod
     def residuals(self, us_bc: torch.Tensor, extra_args):
         """
@@ -19,8 +19,8 @@ class PDE_func(abc.ABC):
         pass
 
 
-class PDE_forward(PDE_func):
-    def __init__(self, u_grid: UGrid):
+class PDE_forward(PDEHandler):
+    def __init__(self, u_grid: UGrid1D):
         self.u_grid = u_grid
         self.derivative_calculator = DerivativeCalc1D(self.u_grid.dx, order=2, device=u_grid.device)
 
@@ -77,8 +77,8 @@ class PDE_forward(PDE_func):
         return dfdU, dfdtheta
 
 
-class PDE_adjoint(PDE_func):
-    def __init__(self, u_grid: UGrid, a_grid: UGridClosed1D):
+class PDE_adjoint(PDEHandler):
+    def __init__(self, u_grid: UGrid1D, a_grid: UGridClosed1D):
         self.u_grid = u_grid
         self.a_grid = a_grid
         self.derivative_calculator = DerivativeCalc1D(self.u_grid.dx, order=2, device=u_grid.device)

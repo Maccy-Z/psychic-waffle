@@ -2,7 +2,7 @@ import torch
 import math
 from pde_solve import PDESolver
 from PDE_functions import PDE_forward, PDE_adjoint, Loss_fn
-from U_grid import UGrid, UGridOpen1D, UGridClosed #PDEGridOpen, PDEGridClosed, PointGrid
+from U_grid import UGrid1D, UGridOpen1D, UGridClosed #PDEGridOpen, PDEGridClosed, PointGrid
 from X_grid import XGrid
 
 class Trainer:

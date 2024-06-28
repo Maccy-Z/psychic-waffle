@@ -1,12 +1,14 @@
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
+from X_grid import XGrid
 import abc
 
 
 class DerivativeCalculator(abc.ABC):
-    def __init__(self, dx, order, device='cpu'):
+    def __init__(self, x_grid: XGrid, order, device='cpu'):
         self.device = device
+        self.dx = x_grid.dx
         if order == 2:
             self.du_kern_raw = [-0.5, 0, 0.5]
             self.d2u_ker_raw = [1, -2, 1]
@@ -14,7 +16,7 @@ class DerivativeCalculator(abc.ABC):
             self.du_kern_raw = [1 / 12, -2 / 3, 0, 2 / 3, -1 / 12]
             self.d2u_ker_raw = [-1 / 12, 4 / 3, -5 / 2, 4 / 3, -1 / 12]
         else:
-            raise ValueError(f"Given order {order} not supported. Must be 2, 4, 6, 8")
+            raise ValueError(f"Given order {order} not supported. Must be 2, 4")
 
         # Boundary coefficients
         self.du_forward = [-1.5, 2, -0.5]
@@ -28,8 +30,8 @@ class DerivativeCalculator(abc.ABC):
 
 
 class DerivativeCalc1D(DerivativeCalculator):
-    def __init__(self, dx, order, **kwargs):
-        super().__init__(dx, order, **kwargs)
+    def __init__(self, dx, order, device='cpu'):
+        super().__init__(dx, order, device=device)
 
         # Central kernels
         self.du_kernel = torch.tensor([self.du_kern_raw], dtype=torch.float32).reshape(1, 1, -1).to(self.device) / dx
@@ -93,22 +95,26 @@ class DerivativeCalc1D(DerivativeCalculator):
 
 
 class DerivativeCalc2D(DerivativeCalculator):
-    def __init__(self, dx, order, extra_points):
-        super().__init__(dx, order, extra_points)
+    def __init__(self, x_grid: XGrid, order, device="cpu"):
+        super().__init__(x_grid, order, device="cpu")
 
         # Kernel shape: [out_channels, in_channels, kern_x, kern_y]
-        self.dudx_kern = torch.tensor([self.du_kern_raw], dtype=torch.float32).reshape(1, 1, -1, 1) / dx
-        self.dudy_kern = torch.tensor([self.du_kern_raw], dtype=torch.float32).reshape(1, 1, 1, -1) / dx
+        self.dudx_kern = torch.tensor([self.du_kern_raw], dtype=torch.float32).reshape(1, 1, -1, 1) / self.dx
+        self.dudy_kern = torch.tensor([self.du_kern_raw], dtype=torch.float32).reshape(1, 1, 1, -1) / self.dx
 
-        self.d2udx_kern = torch.tensor([self.d2u_ker_raw], dtype=torch.float32).reshape(1, 1, -1, 1) / (dx ** 2)
-        self.d2udy_kern = torch.tensor([self.d2u_ker_raw], dtype=torch.float32).reshape(1, 1, 1, -1) / (dx ** 2)
+        self.d2udx_kern = torch.tensor([self.d2u_ker_raw], dtype=torch.float32).reshape(1, 1, -1, 1) / (self.dx ** 2)
+        self.d2udy_kern = torch.tensor([self.d2u_ker_raw], dtype=torch.float32).reshape(1, 1, 1, -1) / (self.dx ** 2)
+
+        self.extra_points = 1
 
     def derivative(self, u) -> (torch.Tensor, torch.Tensor):
         """ u.shape = [Nx + boundary, Ny + boundary]
             Return shape: [2, Nx, Ny]
         """
-        u = u.view(1, *u.shape)  # Shape: [BS, channels, Nx, Ny]
 
+        u = u.view(1, *u.shape)  # Shape: [1, Nx, Ny]
+
+        # Convolutions for derivatives. Conv removes padding along main axis, need to slice to remove padding along other axis
         dudx = F.conv2d(u, self.dudx_kern, padding=0, stride=1)[0, :, self.extra_points:-self.extra_points]
         dudy = F.conv2d(u, self.dudy_kern, padding=0, stride=1)[0, self.extra_points:-self.extra_points, :]
 
@@ -122,7 +128,7 @@ class DerivativeCalc2D(DerivativeCalculator):
 
 
 def main1D():
-    from U_grid import UGrid, UGridClosed
+    from U_grid import UGrid1D, UGridClosed1D
     from X_grid import XGrid
 
     # Parameters
@@ -130,7 +136,7 @@ def main1D():
     N = 100
     X_grid = XGrid(Xmin, Xmax, N)
 
-    u_grid = UGrid(X_grid, dirichlet_bc={'x0_lower': 0, 'x0_upper': 1})
+    u_grid = UGrid1D(X_grid, dirichlet_bc={'x0_lower': 0, 'x0_upper': 1})
     a_grid = UGridClosed(X_grid, dirichlet_bc={'x0_lower': 0, 'x0_upper': 0}, neuman_bc={'x0_lower': 0, 'x0_upper': 2})
 
     xs = X_grid.xs

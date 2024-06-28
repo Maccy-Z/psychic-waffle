@@ -1,9 +1,10 @@
 import torch
+from torch import Tensor
 import abc
 from X_grid import XGrid
 
 
-class UGrid(abc.ABC):
+class UGrid1D(abc.ABC):
     """
     Contains grid of points for solving PDE.
     Handles and saves boundary conditions and masks.
@@ -63,7 +64,7 @@ class UGrid(abc.ABC):
         return f"Grid of values, {self.us}"
 
 
-class UGridOpen1D(UGrid):
+class UGridOpen1D(UGrid1D):
     def __init__(self, X_grid: XGrid,
                  dirichlet_bc: dict = None, neuman_bc: dict = None,
                  device='cpu'):
@@ -117,7 +118,7 @@ class UGridOpen1D(UGrid):
         return self.us
 
 
-class UGridClosed1D(UGrid):
+class UGridClosed1D(UGrid1D):
     """
     Like a PDEGrid, but setting neuman boundary conditions with interior points instead of fantasy.
     """
@@ -162,3 +163,136 @@ class UGridClosed1D(UGrid):
             self.us[-2] = 1 / 4 * (2 * self.neuman_bc['x0_upper'] * self.dx - 3 * self.us[-1] - self.us[-3])
 
         return self.us
+
+
+class UGrid2D(abc.ABC):
+    """
+    Contains grid of points for solving PDE.
+    Handles and saves boundary conditions and masks.
+    """
+    us: Tensor
+    dirichlet_bc: Tensor
+    neuman_bc: Tensor
+    grad_mask: Tensor
+    # u_mask: Tensor
+
+    def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None, device='cpu'):
+        """
+        Boundary conditions set as a tensor of shape [Nx, Ny], with NaN for no boundary, including center.
+        """
+
+        self.device = device
+        self.Xs = X_grid.Xs
+        self.dx = X_grid.dx
+        self.N = X_grid.N
+
+        self._init_bc_dict(dirichlet_bc, neuman_bc)
+
+    def _init_bc_dict(self, dirichlet_bc, neuman_bc):
+        if dirichlet_bc is None:
+            dirichlet_bc = torch.full(self.N.tolist(), float("nan"))
+        else:
+            assert torch.all(torch.isnan(dirichlet_bc[1:-1, 1:-1])), f'{dirichlet_bc = } is not NaN in middle'
+
+        if neuman_bc is None:
+            neuman_bc = torch.full(self.N.tolist(), float("nan"))
+        else:
+            assert torch.all(torch.isnan(neuman_bc[1:-1, 1:-1])), f'{neuman_bc = } is not NaN in middle'
+
+        self.dirichlet_bc = dirichlet_bc
+        self.neuman_bc = neuman_bc
+
+    def remove_bc(self, fs):
+        """
+        Given an array, remove points that don't have gradient.
+        """
+        fs = fs[self.u_mask]
+        return fs
+
+    def update_grid(self, deltas):
+        """
+        deltas.shape = [N]
+        us -> us - deltas
+        """
+        self.us[self.grad_mask] -= deltas
+
+    def set_grid(self, new_us):
+        self.us[self.grad_mask] = new_us
+
+    def get_real_us_Xs(self):
+        """ Return all actual grid points, excluding fake boundaries. """
+        return self.us[1:-1, 1:-1], self.Xs[1:-1, 1:-1]
+
+    @abc.abstractmethod
+    def get_us_Xs(self):
+        """
+        Return grid of points with boundary conditions set.
+        """
+        pass
+
+    @abc.abstractmethod
+    def _fix_bc(self):
+        pass
+
+    def __repr__(self):
+        return f"Grid of values, {self.us}"
+
+
+class UGridOpen2D(UGrid2D):
+    def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None, device='cpu'):
+        super().__init__(X_grid, dirichlet_bc, neuman_bc, device)
+
+        self.us = torch.zeros(self.Xs.shape[:2]).to(self.device)  # Shape: [N + 2]
+        # Set corner to NaN. May need to be changed if using 9 point stencil
+        self.us[0, 0] = float("nan")
+        self.us[-1, -1] = float("nan")
+        self.us[0, -1] = float("nan")
+        self.us[-1, 0] = float("nan")
+
+        # Mask of Dirichlet boundary conditions. Extended to include boundary points
+        dirichlet_bc = torch.full_like(self.us, float("nan"))
+        dirichlet_bc[1:-1, 1:-1] = self.dirichlet_bc
+        self.dirichlet_bc = dirichlet_bc
+
+        self.dirichlet_mask = ~torch.isnan(self.dirichlet_bc)
+
+        # Mask of Neuman boundary conditions. Extended to include boundary points
+        neuman_bc = torch.full_like(self.us, float("nan"))
+        neuman_bc[1:-1, 1:-1] = self.neuman_bc
+        self.neuman_bc = neuman_bc
+
+        self.neuman_mask = torch.zeros_like(self.us).to(torch.bool)
+        # Left
+        self.neuman_mask[0] = ~torch.isnan(self.neuman_bc[1, :])
+        # Right
+        self.neuman_mask[-1] = ~torch.isnan(self.neuman_bc[-2, :])
+        # Top
+        self.neuman_mask[:, -1] = ~torch.isnan(self.neuman_bc[:, -2])
+        # Bottom
+        self.neuman_mask[:, 0] = ~torch.isnan(self.neuman_bc[:, 1])
+
+        # Mask of unfixed elements that require grad
+        self.grad_mask = ~(self.neuman_mask | self.dirichlet_mask)
+
+        self._fix_bc()
+
+    def get_us_Xs(self):
+        return self.us, self.Xs
+
+    def _fix_bc(self):
+        # Dirichlet BC
+        self.us[self.dirichlet_mask] = self.dirichlet_bc[self.dirichlet_mask]
+
+        # Neuman BC. Setting imaginary values so derivatives on boundary are as given.
+        # Left
+        self.us[0, self.neuman_mask[0]] = self.us[2, self.neuman_mask[0]] - 2 * self.neuman_bc[1, self.neuman_mask[0]] * self.dx
+        # Right
+        self.us[-1, self.neuman_mask[-1]] = self.us[-3, self.neuman_mask[-1]] + 2 * self.neuman_bc[-2, self.neuman_mask[-1]] * self.dx
+        # Top
+        self.us[self.neuman_mask[:, -1], -1] = self.us[self.neuman_mask[:, -1], -3] + 2 * self.neuman_bc[self.neuman_mask[:, -1], -2] * self.dx
+        # Bottom
+        self.us[self.neuman_mask[:, 0], 0] = self.us[self.neuman_mask[:, 0], 2] - 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
+
+
+if __name__ == "__main__":
+    x = UGrid2D

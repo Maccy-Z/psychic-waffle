@@ -11,9 +11,9 @@ def show_grid(u):
         u = u.reshape(1, -1)
     elif u.ndim > 2:
         raise ValueError("Input must be a 1D or 2D array")
-    print(u.ndim)
+
     plt.figure(figsize=(8, 6))
-    plt.imshow(u, cmap='viridis', origin='lower')
+    plt.imshow(u.T, cmap='viridis', origin='lower')
     plt.colorbar()
     plt.show()
 

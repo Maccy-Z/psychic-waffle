@@ -42,7 +42,8 @@ class XGrid2D(XGrid):
         self.L = Xmax - Xmin
         N = self.L / dx
         assert torch.all(torch.eq(N, torch.round(N))), f'{N = } is not an integer'
-        self.N = N.to(torch.int)
+
+        self.N = N.to(torch.int) + 1
 
         x_values = torch.arange(Xmin[0] - dx, Xmax[0] + dx, dx)
         y_values = torch.arange(Xmin[1] - dx, Xmax[1] + dx, dx)
