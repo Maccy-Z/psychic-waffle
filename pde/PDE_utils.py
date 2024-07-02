@@ -2,14 +2,20 @@ import torch
 import abc
 import math
 
-from DiscreteDerivative import DerivativeCalc1D
-from U_grid import UGrid1D, UGridOpen1D, UGridClosed1D
+from DiscreteDerivative import DerivativeCalculator
+from U_grid import UGrid2D
 from X_grid import XGrid
+from PDEs import PDEFunc
 
 
 class PDEHandler(abc.ABC):
+    pde_func: PDEFunc
+
+    def __init__(self, pde_func: PDEFunc):
+        self.pde_func = pde_func
+
     @abc.abstractmethod
-    def residuals(self, us_bc: torch.Tensor, extra_args):
+    def residuals(self, us_bc: torch.Tensor, extra_args) -> torch.Tensor:
         """
         PDE function that returns residuals.
         First parameter is tensor which is used for Jacobian.
@@ -20,24 +26,10 @@ class PDEHandler(abc.ABC):
 
 
 class PDE_forward(PDEHandler):
-    def __init__(self, u_grid: UGrid1D):
+    def __init__(self, u_grid: UGrid2D, pde_func: PDEFunc, deriv_calc: DerivativeCalculator):
+        super().__init__(pde_func)
         self.u_grid = u_grid
-        self.derivative_calculator = DerivativeCalc1D(self.u_grid.dx, order=2, device=u_grid.device)
-
-        self.thetas = torch.tensor([0.1, 0.5], dtype=torch.float32, device=u_grid.device)
-
-    def forward(self, Us: torch.Tensor, Xs, thetas=None):
-        """
-        Xs.shape = [n_dim, N]
-        Us.shape = [3, N]
-        Get PDE to solve: PDE(Us) = PDE(u, du/dx, d2u/dx2) = 0
-        """
-        if thetas is None:
-            thetas = self.thetas
-
-        u, dudx, d2udx2 = Us
-        residuals = thetas[0] * d2udx2 + thetas[1] * dudx + torch.sin(u)
-        return residuals
+        self.deriv_calc = deriv_calc
 
     def residuals(self, us_bc, extras):
         """ Given a grid of points:
@@ -46,14 +38,15 @@ class PDE_forward(PDEHandler):
                 Compute derivatives
                 Compute residuals
         """
-        Xs = self.u_grid.xs
+        # Xs = self.u_grid.xs
+        # us = self.u_grid.remove_bc(us_bc)
+        us, Xs = self.u_grid.get_real_us_Xs()
 
-        us = self.u_grid.remove_bc(us_bc)
-        dudx, d2udx2 = self.derivative_calculator.derivative(us_bc)
+        dudX, d2udX2 = self.deriv_calc.derivative(us_bc)
 
-        Us = torch.stack([us, dudx, d2udx2], dim=0)
-        residuals = self.forward(Us, Xs)
-        return residuals, residuals
+        u_dus = (us, dudX, d2udX2)
+        residuals = self.pde_func.residuals(u_dus, Xs)
+        return residuals
 
     def get_dfs(self):
         """
@@ -62,11 +55,11 @@ class PDE_forward(PDEHandler):
         # Calculate u_x, u_xx
         us_bc = self.u_grid.get_with_bc()  # Shape = [N+2]
         us = self.u_grid.remove_bc(us_bc)  # Shape = [N]
-        dudx, d2udx2 = self.derivative_calculator.derivative(us_bc)  # Shape = [N]
+        dudx, d2udx2 = self.deriv_calc.derivative(us_bc)  # Shape = [N]
         Us = torch.stack([us, dudx, d2udx2], dim=0).requires_grad_(True)
 
         # Calculate dfdu, dfdu_x, dfdu_xx
-        residuals = self.forward(Us, None)
+        residuals = self.pde_func.residuals(Us, None)
         residuals.backward(gradient=torch.ones_like(residuals))
 
         dfdU = Us.grad  # dfdu, dfdu_x, dfdu_xx, Shape = [3, N]#

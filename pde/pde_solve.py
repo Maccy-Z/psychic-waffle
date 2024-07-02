@@ -1,16 +1,15 @@
 from U_grid import UGrid1D
 from X_grid import XGrid
-from PDE_functions import PDE_func
+from PDE_utils import PDEHandler
 import torch
 from matplotlib import pyplot as plt
 import math
 import time
 import scipy.sparse.linalg as linalg
+from abc import ABC, abstractmethod
 
-torch.set_printoptions(linewidth=150, precision=3)
 
-
-class PDESolver:
+class Solver(ABC):
     """
     Finite difference PDE solver
     Given a grid of points, solve the PDE at each point with discrete derivatives.
@@ -18,16 +17,32 @@ class PDESolver:
         PDE(u_i-1, u_i, u_i+1) = 0 for i = 1, ..., N
     """
 
-    def __init__(self, pde_func: PDE_func, sol_grid: UGrid1D, N_iter: int, lr=1., device='cpu'):
+    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid1D, device='cpu'):
         self.pde_func = pde_func
-        self.N_iter = N_iter
         self.sol_grid = sol_grid
-        self.lr = lr
 
         self.device = device
-        self.solve_acc = 1e-4
 
-    def train_newton(self, extra=None):
+    def plot(self, title=None):
+        us, xs = self.sol_grid.get_real_u_x()
+        plt.plot(xs.cpu(), us.cpu().numpy())
+        if title is not None:
+            plt.title(title)
+        plt.show()
+
+    @abstractmethod
+    def find_pde_root(self, extra=None):
+        pass
+
+
+class SolverNewton(Solver):
+    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid1D, N_iter: int, lr=1., acc: float = 1e-4, device='cpu'):
+        super().__init__(pde_func, sol_grid, device)
+        self.N_iter = N_iter
+        self.lr = lr
+        self.solve_acc = acc
+
+    def find_pde_root(self, extra=None):
         """
         Find the root of the PDE using Newton Raphson.
         :param extra: Additional conditioning for the PDE
@@ -59,12 +74,6 @@ class PDESolver:
 
         # print("Final values:", self.sol_grid.get_with_bc().cpu())
 
-    def plot(self, title=None):
-        us, xs = self.sol_grid.get_real_u_x()
-        plt.plot(xs.cpu(), us.cpu().numpy())
-        if title is not None:
-            plt.title(title)
-        plt.show()
 
 
 def main():

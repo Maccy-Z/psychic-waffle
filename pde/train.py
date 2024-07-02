@@ -1,8 +1,8 @@
 import torch
 import math
 from pde_solve import PDESolver
-from PDE_functions import PDE_forward, PDE_adjoint, Loss_fn
-from U_grid import UGrid1D, UGridOpen1D, UGridClosed #PDEGridOpen, PDEGridClosed, PointGrid
+from PDE_utils import PDE_forward, PDE_adjoint, Loss_fn
+from U_grid import UGrid1D, UGridOpen1D, UGridClosed1D
 from X_grid import XGrid
 
 class Trainer:
@@ -18,7 +18,7 @@ class Trainer:
 
         self.X_grid = X_grid
         self.u_grid = UGridOpen1D(X_grid, dirichlet_bc={'x0_lower': 0}, neuman_bc={'x0_lower': 1}, device=device)
-        self.a_grid = UGridClosed(X_grid, dirichlet_bc={'x0_upper': 0}, neuman_bc={'x0_upper': 0}, device=device)
+        self.a_grid = UGridClosed1D(X_grid, dirichlet_bc={'x0_upper': 0}, neuman_bc={'x0_upper': 0}, device=device)
 
         # PDE forward and adjoint functions
         self.pde_fwd = PDE_forward(self.u_grid)
