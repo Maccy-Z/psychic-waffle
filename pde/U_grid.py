@@ -4,20 +4,77 @@ import abc
 from X_grid import XGrid
 
 
-class UGrid1D(abc.ABC):
+class UGrid(abc.ABC):
+    N_dim: int
+
+    us: Tensor
+    Xs: Tensor
+
+    dirichlet_bc: Tensor
+    grad_mask: Tensor  # Which us have gradient. Shape = [N+2, ...]
+    pde_mask: Tensor  # Which PDEs are used to fit us. Shape = [N, ...]
+    u_mask: tuple[slice, ...]  # Real us points
+    N_us_train: int | Tensor
+
+    def __init__(self, X_grid: XGrid):
+        self.device = X_grid.device
+        self.Xs = X_grid.Xs
+        self.dx = X_grid.dx
+        self.N = X_grid.N
+
+    def get_us_trainable(self):
+        """
+        Given an array, remove points that don't have gradient.
+        """
+        us_grad = self.us[self.grad_mask]
+        return us_grad
+
+    def add_nograd_to_us(self, us_grad):
+        """
+        Add points that don't have gradient to us. Used for jacobian computation.
+        """
+        us_all = torch.clone(self.us)
+        us_all[self.grad_mask] = us_grad
+        return us_all
+
+    def update_grid(self, deltas):
+        """
+        deltas.shape = [N]
+        us -> us - deltas
+        """
+        self.us[self.grad_mask] -= deltas
+
+    def set_grid(self, new_us):
+        self.us[self.grad_mask] = new_us
+
+    def get_real_us_Xs(self):
+        """ Return all actual grid points, excluding fake boundaries. """
+        return self.us[self.u_mask], self.Xs[self.u_mask]
+
+    def get_all_us_Xs(self):
+        """ Return all grid points, including fake boundaries. """
+        return self.us, self.Xs
+
+    def _cuda(self):
+        self.us = self.us.cuda()
+        self.Xs = self.Xs.cuda()
+        self.dirichlet_bc = self.dirichlet_bc.cuda()
+        self.grad_mask = self.grad_mask.cuda()
+        self.pde_mask = self.pde_mask.cuda()
+
+
+class UGrid1D(UGrid):
     """
     Contains grid of points for solving PDE.
     Handles and saves boundary conditions and masks.
     """
-    us: torch.Tensor
     pre_approved_bc: set = {'x0_lower', 'x0_upper'}
     neuman_bc: dict
     dirichlet_bc: dict
-    grad_mask: torch.Tensor
-    u_mask: torch.Tensor
 
     def __init__(self, X_grid: XGrid, dirichlet_bc: dict = None, neuman_bc: dict = None, device='cpu'):
-        self.device = device
+        super().__init__(X_grid, device)
+        self.N_dim = 1
         self._init_bc_dict(dirichlet_bc, neuman_bc)
 
         self.dx = X_grid.dx
@@ -85,11 +142,11 @@ class UGridOpen1D(UGrid1D):
         super().__init__(X_grid, dirichlet_bc, neuman_bc, device)
 
         # Grid of points.
-        self.xs = X_grid.xs
-        self.us = torch.zeros_like(self.xs).to(self.device)  # Shape: [N + 2]
+        self.Xs = X_grid.xs
+        self.us = torch.zeros_like(self.Xs).to(self.device)  # Shape: [N + 2]
 
         # Mask of where to compute gradients, no gradient at boundary
-        self.grad_mask = torch.ones_like(self.xs).to(torch.bool).to(self.device)
+        self.grad_mask = torch.ones_like(self.Xs).to(torch.bool).to(self.device)
         if 'x0_lower' in self.dirichlet_bc:
             self.grad_mask[1] = 0
         if 'x0_upper' in self.dirichlet_bc:
@@ -100,9 +157,7 @@ class UGridOpen1D(UGrid1D):
             self.grad_mask[-1] = 0
 
         # Mask of which elements are real
-        self.u_mask = torch.ones_like(self.xs).to(torch.bool).to(self.device)
-        self.u_mask[0] = 0
-        self.u_mask[-1] = 0
+        self.u_mask = (slice(1, -1),)
 
     def get_with_bc(self):
         if 'x0_lower' in self.dirichlet_bc:
@@ -165,26 +220,18 @@ class UGridClosed1D(UGrid1D):
         return self.us
 
 
-class UGrid2D(abc.ABC):
+class UGrid2D(UGrid):
     """
     Contains grid of points for solving PDE.
     Handles and saves boundary conditions and masks.
     """
-    us: Tensor
-    dirichlet_bc: Tensor
-    neuman_bc: Tensor
-    grad_mask: Tensor
-    # u_mask: Tensor
 
-    def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None, device='cpu'):
+    def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None):
         """
         Boundary conditions set as a tensor of shape [Nx, Ny], with NaN for no boundary, including center.
         """
-
-        self.device = device
-        self.Xs = X_grid.Xs
-        self.dx = X_grid.dx
-        self.N = X_grid.N
+        super().__init__(X_grid)
+        self.N_dim = 2
 
         self._init_bc_dict(dirichlet_bc, neuman_bc)
 
@@ -202,34 +249,6 @@ class UGrid2D(abc.ABC):
         self.dirichlet_bc = dirichlet_bc
         self.neuman_bc = neuman_bc
 
-    def remove_bc(self, fs):
-        """
-        Given an array, remove points that don't have gradient.
-        """
-        fs = fs[self.u_mask]
-        return fs
-
-    def update_grid(self, deltas):
-        """
-        deltas.shape = [N]
-        us -> us - deltas
-        """
-        self.us[self.grad_mask] -= deltas
-
-    def set_grid(self, new_us):
-        self.us[self.grad_mask] = new_us
-
-    def get_real_us_Xs(self):
-        """ Return all actual grid points, excluding fake boundaries. """
-        return self.us[1:-1, 1:-1], self.Xs[1:-1, 1:-1]
-
-    @abc.abstractmethod
-    def get_us_Xs(self):
-        """
-        Return grid of points with boundary conditions set.
-        """
-        pass
-
     @abc.abstractmethod
     def _fix_bc(self):
         pass
@@ -239,8 +258,18 @@ class UGrid2D(abc.ABC):
 
 
 class UGridOpen2D(UGrid2D):
-    def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None, device='cpu'):
-        super().__init__(X_grid, dirichlet_bc, neuman_bc, device)
+    def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None):
+        super().__init__(X_grid, dirichlet_bc, neuman_bc)
+
+        # Real elements
+        self.u_mask = (slice(1, -1), slice(1, -1))
+
+        # Select which boundary equations are needed to enforce PDE at to save computation
+        pde_mask = torch.zeros(*X_grid.N).to(torch.bool)
+        self.pde_mask = pde_mask | torch.isnan(self.neuman_bc) | torch.isnan(self.dirichlet_bc)
+        # self.pde_mask = torch.zeros(self.Xs.shape[:2]).bool()
+        #self.pde_mask[1:-1, 1:-1] = pde_mask
+        #self.pde_mask = pde_mask
 
         self.us = torch.zeros(self.Xs.shape[:2]).to(self.device)  # Shape: [N + 2]
         # Set corner to NaN. May need to be changed if using 9 point stencil
@@ -271,13 +300,36 @@ class UGridOpen2D(UGrid2D):
         # Bottom
         self.neuman_mask[:, 0] = ~torch.isnan(self.neuman_bc[:, 1])
 
+        # Fix corners with Neuman (as Nans)
+        self.neuman_mask[[0, 0, -1, -1], [0, -1, 0, -1]] = True
+
         # Mask of unfixed elements that require grad
         self.grad_mask = ~(self.neuman_mask | self.dirichlet_mask)
+        self.N_us_train = self.grad_mask.sum()
 
+        # TODO: Dirichlet corner conditions
+        self.pde_mask[0, 0] = False
+        self.grad_mask[1, 0] = False
+        self.grad_mask[0, 1] = False
+
+        self.pde_mask[-1, -1] = False
+        self.grad_mask[-2, -1] = False
+        self.grad_mask[-1, -2] = False
+
+        self.pde_mask[0, -1] = False
+        self.grad_mask[1, -1] = False
+        self.grad_mask[0, -2] = False
+
+        self.pde_mask[-1, 0] = False
+        self.grad_mask[-2, 0] = False
+        self.grad_mask[-1, 1] = False
+
+        N_us_train, N_us = self.grad_mask.sum().item(), self.pde_mask.sum().item()
+        assert N_us_train == N_us, f"Need as many equations as unknowns, {N_us_train = } != {N_us = }"
         self._fix_bc()
 
-    def get_us_Xs(self):
-        return self.us, self.Xs
+        if self.device == 'cuda':
+            self._cuda()
 
     def _fix_bc(self):
         # Dirichlet BC

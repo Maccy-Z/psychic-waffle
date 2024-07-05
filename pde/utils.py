@@ -1,8 +1,8 @@
 from matplotlib import pyplot as plt
 import numpy as np
+import torch
 
-
-def show_grid(u):
+def show_grid(u: torch.Tensor, title=None):
     """
     Visualize a 2D grid of values using matplotlib
     """
@@ -13,8 +13,10 @@ def show_grid(u):
         raise ValueError("Input must be a 1D or 2D array")
 
     plt.figure(figsize=(8, 6))
-    plt.imshow(u.T, cmap='viridis', origin='lower')
+    plt.imshow(u.T.cpu().detach(), cmap='viridis', origin='lower')
     plt.colorbar()
+    if title is not None:
+        plt.title(title)
     plt.show()
 
 

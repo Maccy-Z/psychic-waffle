@@ -5,7 +5,7 @@ from X_grid import XGrid
 import abc
 
 
-class DerivativeCalculator(abc.ABC):
+class DerivativeCalc(abc.ABC):
     def __init__(self, x_grid: XGrid, order, device='cpu'):
         self.device = device
         self.dx = x_grid.dx
@@ -29,7 +29,7 @@ class DerivativeCalculator(abc.ABC):
         pass
 
 
-class DerivativeCalc1D(DerivativeCalculator):
+class DerivativeCalc1D(DerivativeCalc):
     def __init__(self, dx, order, device='cpu'):
         super().__init__(dx, order, device=device)
 
@@ -94,21 +94,23 @@ class DerivativeCalc1D(DerivativeCalculator):
         return dudx_high, d2udx2_high
 
 
-class DerivativeCalc2D(DerivativeCalculator):
-    def __init__(self, x_grid: XGrid, order, device="cpu"):
-        super().__init__(x_grid, order, device="cpu")
+class DerivativeCalc2D(DerivativeCalc):
+    def __init__(self, x_grid: XGrid, order):
+        super().__init__(x_grid, order, device=x_grid.device)
 
         # Kernel shape: [out_channels, in_channels, kern_x, kern_y]
-        self.dudx_kern = torch.tensor([self.du_kern_raw], dtype=torch.float32).reshape(1, 1, -1, 1) / self.dx
-        self.dudy_kern = torch.tensor([self.du_kern_raw], dtype=torch.float32).reshape(1, 1, 1, -1) / self.dx
+        self.dudx_kern = torch.tensor([self.du_kern_raw], dtype=torch.float32, device=self.device).reshape(1, 1, -1, 1) / self.dx
+        self.dudy_kern = torch.tensor([self.du_kern_raw], dtype=torch.float32, device=self.device).reshape(1, 1, 1, -1) / self.dx
 
-        self.d2udx_kern = torch.tensor([self.d2u_ker_raw], dtype=torch.float32).reshape(1, 1, -1, 1) / (self.dx ** 2)
-        self.d2udy_kern = torch.tensor([self.d2u_ker_raw], dtype=torch.float32).reshape(1, 1, 1, -1) / (self.dx ** 2)
+        self.d2udx_kern = torch.tensor([self.d2u_ker_raw], dtype=torch.float32, device=self.device).reshape(1, 1, -1, 1) / (self.dx ** 2)
+        self.d2udy_kern = torch.tensor([self.d2u_ker_raw], dtype=torch.float32, device=self.device).reshape(1, 1, 1, -1) / (self.dx ** 2)
 
         self.extra_points = 1
 
     def derivative(self, u) -> (torch.Tensor, torch.Tensor):
-        """ u.shape = [Nx + boundary, Ny + boundary]
+        """
+            Calculate central finite difference derivatives
+            u.shape = [Nx + boundary, Ny + boundary]
             Return shape: [2, Nx, Ny]
         """
 

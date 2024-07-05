@@ -7,6 +7,7 @@ class XGrid(abc.ABC):
     N_dim: int
     Xs: torch.Tensor  # X points, xs.shape = [[N]* N_dim]
     dx: float  # Spacing between points
+    N: torch.Tensor      # Number of real points in grid
 
     def __init__(self, device='cpu'):
         """ Xmin: minimum of grid
@@ -41,18 +42,20 @@ class XGrid2D(XGrid):
         self.dx = dx
         self.L = Xmax - Xmin
         N = self.L / dx
+
         assert torch.all(torch.eq(N, torch.round(N))), f'{N = } is not an integer'
 
         self.N = N.to(torch.int) + 1
 
-        x_values = torch.arange(Xmin[0] - dx, Xmax[0] + dx, dx)
-        y_values = torch.arange(Xmin[1] - dx, Xmax[1] + dx, dx)
+        x_values = torch.linspace(Xmin[0] - dx, Xmax[0] + dx, self.N[0]+2)
+        y_values = torch.linspace(Xmin[1] - dx, Xmax[1] + dx, self.N[1]+2)
 
         # Create the grid of points
         n_grid, m_grid = torch.meshgrid(x_values, y_values, indexing='xy')
 
         # Combine the grids to form the final N x M grid of points
         self.Xs = torch.stack([n_grid, m_grid], dim=-1).to(self.device)
+
 
 
 def main():

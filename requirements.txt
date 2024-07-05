@@ -2,6 +2,7 @@ matplotlib
 numpy
 pandas
 scipy
+scikit-umfpack
 torch
 # xitorch
 # findiff

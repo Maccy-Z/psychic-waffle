@@ -2,8 +2,8 @@ import torch
 import abc
 import math
 
-from DiscreteDerivative import DerivativeCalculator
-from U_grid import UGrid2D
+from DiscreteDerivative import DerivativeCalc
+from U_grid import UGrid2D, UGrid
 from X_grid import XGrid
 from PDEs import PDEFunc
 
@@ -25,28 +25,38 @@ class PDEHandler(abc.ABC):
         pass
 
 
-class PDE_forward(PDEHandler):
-    def __init__(self, u_grid: UGrid2D, pde_func: PDEFunc, deriv_calc: DerivativeCalculator):
+class PDEForward(PDEHandler):
+    us_dus_cache: torch.Tensor
+
+    def __init__(self, u_grid: UGrid, pde_func: PDEFunc, deriv_calc: DerivativeCalc):
         super().__init__(pde_func)
         self.u_grid = u_grid
         self.deriv_calc = deriv_calc
 
-    def residuals(self, us_bc, extras):
-        """ Given a grid of points:
-                Set Dirichlet boundary on u
-                Set Neumann boundary on derivatives
-                Compute derivatives
-                Compute residuals
-        """
-        # Xs = self.u_grid.xs
-        # us = self.u_grid.remove_bc(us_bc)
-        us, Xs = self.u_grid.get_real_us_Xs()
+    def residuals(self, us_grad, extras):
+        """ us.shape = [N, ...], with boundary points
+            Xs.shape = [N, ...], no boundary points
 
+            Returns residuals of equations that require gradients only.
+
+        """
+        us_bc = self.u_grid.add_nograd_to_us(us_grad)  # Shape = [N+2, ...]. Need all Us to calculate derivatives.
+        _, Xs = self.u_grid.get_real_us_Xs()
         dudX, d2udX2 = self.deriv_calc.derivative(us_bc)
 
-        u_dus = (us, dudX, d2udX2)
-        residuals = self.pde_func.residuals(u_dus, Xs)
+        us_dus = (us_grad, dudX, d2udX2)
+        residuals = self.pde_func.residuals(us_dus, Xs)
+        resid_grad = residuals[self.u_grid.pde_mask]#[1:-1, 1:-1]]
+        return resid_grad, resid_grad
+
+    def only_resid(self):
+        us_bc, Xs_bc = self.u_grid.get_all_us_Xs()
+        dudX, d2udX2 = self.deriv_calc.derivative(us_bc)
+        us_dus = (us_bc, dudX, d2udX2)
+        residuals = self.pde_func.residuals(us_dus, Xs_bc)
+
         return residuals
+
 
     def get_dfs(self):
         """
@@ -62,46 +72,46 @@ class PDE_forward(PDEHandler):
         residuals = self.pde_func.residuals(Us, None)
         residuals.backward(gradient=torch.ones_like(residuals))
 
-        dfdU = Us.grad  # dfdu, dfdu_x, dfdu_xx, Shape = [3, N]#
+        dfdU = Us.grad  # dfdu, dfdu_x, dfdu_xx, Shape = [3, N]
 
         # Get dfdtheta using Jacobian
         with torch.no_grad():
             dfdtheta = torch.func.jacrev(self.forward, argnums=2)(Us, None, self.thetas)
         return dfdU, dfdtheta
 
-
-class PDE_adjoint(PDEHandler):
-    def __init__(self, u_grid: UGrid1D, a_grid: UGridClosed1D):
-        self.u_grid = u_grid
-        self.a_grid = a_grid
-        self.derivative_calculator = DerivativeCalc1D(self.u_grid.dx, order=2, device=u_grid.device)
-
-    def residuals(self, as_bc: torch.Tensor, Lu_dfdU):
-        """
-        Solve adjoint equation for a
-        Requires dfdU = [dF/du, dF/du_x, dF/du_xx]
-        Returns adjoint_PDE(a) = a F_u - (a F_u_x)_x + (a F_u_xx)_xx - L_u
-        """
-
-        Lu, dfdU = Lu_dfdU  # Shape = [N-2], [3, N]
-
-        a = self.a_grid.remove_bc(as_bc)  # Shape = [N]
-
-        a_dfdU = a * dfdU  # Shape = [3, N]
-        af_u = a_dfdU[0]  # Shape = [N]
-        af_u_x = a_dfdU[1]  # Shape = [N]
-        af_u_xx = a_dfdU[2]  # Shape = [N]
-
-        daf_u_x_dx, _ = self.derivative_calculator.derivative_boundary(af_u_x)  # Shape = [N]
-        _, d2af_u_xx_dx2 = self.derivative_calculator.derivative_boundary(af_u_xx)  # Shape = [N]
-
-        adjoint_resid = af_u - daf_u_x_dx + d2af_u_xx_dx2
-
-        # Remove first and last term on boundary since equations are overdetermined
-        adjoint_resid = adjoint_resid[1:-1]
-
-        adjoint_resid = adjoint_resid + Lu
-        return adjoint_resid, adjoint_resid
+#
+# class PDE_adjoint(PDEHandler):
+#     def __init__(self, u_grid: UGrid, a_grid: UGridClosed1D):
+#         self.u_grid = u_grid
+#         self.a_grid = a_grid
+#         self.derivative_calculator = DerivativeCalc1D(self.u_grid.dx, order=2, device=u_grid.device)
+#
+#     def residuals(self, as_bc: torch.Tensor, Lu_dfdU):
+#         """
+#         Solve adjoint equation for a
+#         Requires dfdU = [dF/du, dF/du_x, dF/du_xx]
+#         Returns adjoint_PDE(a) = a F_u - (a F_u_x)_x + (a F_u_xx)_xx - L_u
+#         """
+#
+#         Lu, dfdU = Lu_dfdU  # Shape = [N-2], [3, N]
+#
+#         a = self.a_grid.remove_bc(as_bc)  # Shape = [N]
+#
+#         a_dfdU = a * dfdU  # Shape = [3, N]
+#         af_u = a_dfdU[0]  # Shape = [N]
+#         af_u_x = a_dfdU[1]  # Shape = [N]
+#         af_u_xx = a_dfdU[2]  # Shape = [N]
+#
+#         daf_u_x_dx, _ = self.derivative_calculator.derivative_boundary(af_u_x)  # Shape = [N]
+#         _, d2af_u_xx_dx2 = self.derivative_calculator.derivative_boundary(af_u_xx)  # Shape = [N]
+#
+#         adjoint_resid = af_u - daf_u_x_dx + d2af_u_xx_dx2
+#
+#         # Remove first and last term on boundary since equations are overdetermined
+#         adjoint_resid = adjoint_resid[1:-1]
+#
+#         adjoint_resid = adjoint_resid + Lu
+#         return adjoint_resid, adjoint_resid
 
 
 class Loss_fn:

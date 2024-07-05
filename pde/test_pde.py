@@ -1,52 +1,59 @@
 import torch
+import time
 
 from X_grid import XGrid2D
 from U_grid import UGridOpen2D
 from utils import show_grid
 from DiscreteDerivative import DerivativeCalc2D
 from PDEs import Poisson
+from PDE_utils import PDEForward
 from pde_solve import SolverNewton
 
 torch.set_printoptions(linewidth=150, precision=3)
 
+# Init grid
 xmin, xmax = torch.tensor([0, 0]), torch.tensor([1, 1])
+Xs_grid = XGrid2D(xmin, xmax, 0.01, device='cpu')
+grid_N = Xs_grid.N.tolist()
 
-Xs_grid = XGrid2D(xmin, xmax, 0.2)
+# Init BC
+dirichlet_bc = torch.full(grid_N, float('nan'))
+dirichlet_bc[-1, :] = 0
+dirichlet_bc[:, 0] = 0
+dirichlet_bc[:, -1] = 0
+dirichlet_bc[0, 1:-1] = 1 #torch.arange(1, grid_N[0]+1)
 
-dirichlet_bc = torch.ones([6, 6])
-dirichlet_bc[:] = float('nan')
-dirichlet_bc[:, 0] = torch.arange(1, 7)
+neuman_bc = torch.full(grid_N, float('nan'))
+# neuman_bc[1:-1, 1:-1] = float('nan')
+# neuman_bc[3, 0] = float('nan')
+# neuman_bc[0, :] = -5
 
-neuman_bc = torch.ones([6, 6])
-neuman_bc[1:-1, 1:-1] = float('nan')
-neuman_bc[1, -1] = float('nan')
-neuman_bc[3, -1] = -1
+print(f'{neuman_bc.shape = }')
+print()
 
+# Init PDE classes
 us_grid = UGridOpen2D(Xs_grid, dirichlet_bc=dirichlet_bc, neuman_bc=neuman_bc)
 deriv_calc = DerivativeCalc2D(Xs_grid, order=2)
 pde_fn = Poisson()
+pde_handle = PDEForward(us_grid, pde_fn, deriv_calc)
+solver = SolverNewton(pde_handle, us_grid, N_iter=5, lr=1.)
 
-us_bc, Xs_bc = us_grid.get_us_Xs()
+# Coordinates
+us_bc, Xs_bc = us_grid.get_all_us_Xs()
 us, Xs = us_grid.get_real_us_Xs()
-du_dX, d2u_dX2 = deriv_calc.derivative(us_bc)
 
-print(f'{us.shape = }, {Xs.shape = }, {du_dX.shape = }, {d2u_dX2.shape = }')
-show_grid(us_bc)
-show_grid(d2u_dX2[0])
+# show_grid(us_grid.grad_mask, "grad mask")
+# #show_grid(us_grid.neuman_bc, title="Neuman BC")
+# show_grid(us_grid.dirichlet_bc, title='Dirichlet BC')
+# show_grid(us_grid.pde_mask, title='PDE mask')
 
-us_dus = [us, du_dX, d2u_dX2]
-residuals = pde_fn.residuals(us_dus, Xs)
-print(residuals.shape)
+# Solve
+st = time.time()
+solver.find_pde_root()
+print(f'{time.time() - st :.3g}')
+us, _ = us_grid.get_real_us_Xs()
+show_grid(us, "Fitted values")
 
-# us_grid = UGridOpen1D(Xs_grid, dirichlet_bc={'x0_lower': 0}, neuman_bc={'x0_lower': 1})
-#
-# pde_fn = PDE_forward(us_grid)
-#
-# solver = PDESolver(pde_fn, us_grid, N_iter=40, lr=2)
-#
-# solver.train_newton()
-#
-# u, x = us_grid.get_real_u_x()
-#
-# show_grid(u)
-# print(Xs_grid)
+# residuals = pde_handle.only_resid()
+# show_grid(residuals, "Residuals")
+
