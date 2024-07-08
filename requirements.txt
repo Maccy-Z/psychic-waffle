@@ -1,8 +1,8 @@
 matplotlib
 numpy
-pandas
+# pandas
 scipy
-scikit-umfpack
+#scikit-umfpack
 torch
 # xitorch
 # findiff

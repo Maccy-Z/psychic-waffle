@@ -11,7 +11,8 @@ from X_grid import XGrid
 from PDE_utils import PDEHandler
 from utils import show_grid
 
-scipy.sparse.linalg.use_solver(useUmfpack=True)
+
+# scipy.sparse.linalg.use_solver(useUmfpack=True)
 
 class Solver(ABC):
     """
@@ -58,7 +59,7 @@ class SolverNewton(Solver):
             with torch.no_grad():
                 jacob, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, extra)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
 
-                #print(f'Residual: {torch.mean(torch.abs(residuals))}, iteration {i}')
+                # print(f'Residual: {torch.mean(torch.abs(residuals))}, iteration {i}')
                 show_grid(jacob)
                 # if torch.mean(torch.abs(residuals)) < self.solve_acc:
                 #     break
@@ -81,7 +82,6 @@ class SolverNewton(Solver):
                 self.sol_grid.update_grid(deltas)
 
         # print("Final values:", self.sol_grid.get_with_bc().cpu())
-
 
 
 def main():
