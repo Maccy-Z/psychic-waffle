@@ -60,4 +60,3 @@ show_grid(us, "Fitted values")
 
 # residuals = pde_handle.only_resid()
 # show_grid(residuals, "Residuals")
-
