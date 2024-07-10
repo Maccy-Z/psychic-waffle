@@ -6,13 +6,15 @@ from X_grid import XGrid
 
 class UGrid(abc.ABC):
     N_dim: int
-
+    N: Tensor  # Number of real points in each dimension
     us: Tensor
     Xs: Tensor
 
     dirichlet_bc: Tensor
+    neuman_bc: Tensor
+
     grad_mask: Tensor  # Which us have gradient. Shape = [N+2, ...]
-    pde_mask: Tensor  # Which PDEs are used to fit us. Shape = [N, ...]
+    pde_mask: Tensor  # Which PDEs are used to fit us. Automatically disregard extra points. Shape = [N, ...]
     u_mask: tuple[slice, ...]  # Real us points
     N_us_train: int | Tensor
 
@@ -31,21 +33,23 @@ class UGrid(abc.ABC):
 
     def add_nograd_to_us(self, us_grad):
         """
-        Add points that don't have gradient to us. Used for jacobian computation.
+        Add points that don't have gradient to us. Used for Jacobian computation.
         """
         us_all = torch.clone(self.us)
         us_all[self.grad_mask] = us_grad
+
+        # Neuman BCs also need to be set using us_grad to make sure gradient is tracked across boundary
+        self._fix_neuman_bc(us_all)
         return us_all
 
     def update_grid(self, deltas):
         """
+        Update grid with changes, and fix boundary conditions with new grid.
         deltas.shape = [N]
         us -> us - deltas
         """
         self.us[self.grad_mask] -= deltas
-
-    def set_grid(self, new_us):
-        self.us[self.grad_mask] = new_us
+        self._fix_bc()
 
     def get_real_us_Xs(self):
         """ Return all actual grid points, excluding fake boundaries. """
@@ -54,6 +58,15 @@ class UGrid(abc.ABC):
     def get_all_us_Xs(self):
         """ Return all grid points, including fake boundaries. """
         return self.us, self.Xs
+
+    @abc.abstractmethod
+    def _fix_bc(self):
+        pass
+
+    @abc.abstractmethod
+    def _fix_neuman_bc(self, us):
+        """ Neuman boundary conditions are special, since autograd needs to track values across two points. """
+        pass
 
     def _cuda(self):
         self.us = self.us.cuda()
@@ -246,12 +259,12 @@ class UGrid2D(UGrid):
         else:
             assert torch.all(torch.isnan(neuman_bc[1:-1, 1:-1])), f'{neuman_bc = } is not NaN in middle'
 
+            corner_idx = [(0, 0), (0, -1), (-1, 0), (-1, -1)]
+            corners = torch.stack([neuman_bc[idx] for idx in corner_idx])
+            assert torch.all(torch.isnan(corners)), f'{neuman_bc = } Undefined Neuman corner values.'
+
         self.dirichlet_bc = dirichlet_bc
         self.neuman_bc = neuman_bc
-
-    @abc.abstractmethod
-    def _fix_bc(self):
-        pass
 
     def __repr__(self):
         return f"Grid of values, {self.us}"
@@ -264,19 +277,8 @@ class UGridOpen2D(UGrid2D):
         # Real elements
         self.u_mask = (slice(1, -1), slice(1, -1))
 
-        # Select which boundary equations are needed to enforce PDE at to save computation
-        pde_mask = torch.zeros(*X_grid.N).to(torch.bool)
-        self.pde_mask = pde_mask | torch.isnan(self.neuman_bc) | torch.isnan(self.dirichlet_bc)
-        # self.pde_mask = torch.zeros(self.Xs.shape[:2]).bool()
-        #self.pde_mask[1:-1, 1:-1] = pde_mask
-        #self.pde_mask = pde_mask
-
-        self.us = torch.zeros(self.Xs.shape[:2]).to(self.device)  # Shape: [N + 2]
-        # Set corner to NaN. May need to be changed if using 9 point stencil
-        self.us[0, 0] = float("nan")
-        self.us[-1, -1] = float("nan")
-        self.us[0, -1] = float("nan")
-        self.us[-1, 0] = float("nan")
+        n_us = (self.N + 2).tolist()
+        self.us = torch.zeros(n_us).to(self.device)  # Shape: [N + 2, ...]
 
         # Mask of Dirichlet boundary conditions. Extended to include boundary points
         dirichlet_bc = torch.full_like(self.us, float("nan"))
@@ -300,32 +302,28 @@ class UGridOpen2D(UGrid2D):
         # Bottom
         self.neuman_mask[:, 0] = ~torch.isnan(self.neuman_bc[:, 1])
 
-        # Fix corners with Neuman (as Nans)
-        self.neuman_mask[[0, 0, -1, -1], [0, -1, 0, -1]] = True
+        # Select which boundary equations are needed to enforce PDE at to save computation
+        self.grad_mask = torch.zeros_like(self.us).to(torch.bool)
+        self.grad_mask[2:-2, 2:-2] = True
 
-        # Mask of unfixed elements that require grad
-        self.grad_mask = ~(self.neuman_mask | self.dirichlet_mask)
+        self.pde_mask = torch.zeros_like(self.us).to(torch.bool)
+        self.pde_mask[2:-2, 2:-2] = True
+        edge_idxs = [((0, slice(1, -1)), (1, slice(1, -1))),  # Left
+                     ((-1, slice(1, -1)), (-2, slice(1, -1))),  # Right
+                     ((slice(1, -1), -1), (slice(1, -1), -2)),  # Top
+                     ((slice(1, -1), 0), (slice(1, -1), 1))  # Bottom
+                     ]
+
+        for border_idx, inset_idx in edge_idxs:
+            pde_vals, grad_vals = self._set_bc_masks_1D(self.neuman_mask[border_idx], self.dirichlet_mask[inset_idx])
+
+            self.pde_mask[inset_idx] = pde_vals
+            self.grad_mask[inset_idx] = grad_vals
+
         self.N_us_train = self.grad_mask.sum()
-
-        # TODO: Dirichlet corner conditions
-        self.pde_mask[0, 0] = False
-        self.grad_mask[1, 0] = False
-        self.grad_mask[0, 1] = False
-
-        self.pde_mask[-1, -1] = False
-        self.grad_mask[-2, -1] = False
-        self.grad_mask[-1, -2] = False
-
-        self.pde_mask[0, -1] = False
-        self.grad_mask[1, -1] = False
-        self.grad_mask[0, -2] = False
-
-        self.pde_mask[-1, 0] = False
-        self.grad_mask[-2, 0] = False
-        self.grad_mask[-1, 1] = False
-
-        N_us_train, N_us = self.grad_mask.sum().item(), self.pde_mask.sum().item()
+        N_us_train, N_us = self.N_us_train.item(), self.pde_mask.sum().item()
         assert N_us_train == N_us, f"Need as many equations as unknowns, {N_us_train = } != {N_us = }"
+
         self._fix_bc()
 
         if self.device == 'cuda':
@@ -335,15 +333,41 @@ class UGridOpen2D(UGrid2D):
         # Dirichlet BC
         self.us[self.dirichlet_mask] = self.dirichlet_bc[self.dirichlet_mask]
 
+        self._fix_neuman_bc(self.us)
+        # # Left
+        # self.us[0, self.neuman_mask[0]] = self.us[2, self.neuman_mask[0]] - 2 * self.neuman_bc[1, self.neuman_mask[0]] * self.dx
+        # # Right
+        # self.us[-1, self.neuman_mask[-1]] = self.us[-3, self.neuman_mask[-1]] + 2 * self.neuman_bc[-2, self.neuman_mask[-1]] * self.dx
+        # # Top
+        # self.us[self.neuman_mask[:, -1], -1] = self.us[self.neuman_mask[:, -1], -3] + 2 * self.neuman_bc[self.neuman_mask[:, -1], -2] * self.dx
+        # # Bottom
+        # self.us[self.neuman_mask[:, 0], 0] = self.us[self.neuman_mask[:, 0], 2] - 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
+
+    def _fix_neuman_bc(self, us):
         # Neuman BC. Setting imaginary values so derivatives on boundary are as given.
+
         # Left
-        self.us[0, self.neuman_mask[0]] = self.us[2, self.neuman_mask[0]] - 2 * self.neuman_bc[1, self.neuman_mask[0]] * self.dx
+        us[0, self.neuman_mask[0]] = us[2, self.neuman_mask[0]] + 2 * self.neuman_bc[1, self.neuman_mask[0]] * self.dx
         # Right
-        self.us[-1, self.neuman_mask[-1]] = self.us[-3, self.neuman_mask[-1]] + 2 * self.neuman_bc[-2, self.neuman_mask[-1]] * self.dx
+        us[-1, self.neuman_mask[-1]] = us[-3, self.neuman_mask[-1]] + 2 * self.neuman_bc[-2, self.neuman_mask[-1]] * self.dx
         # Top
-        self.us[self.neuman_mask[:, -1], -1] = self.us[self.neuman_mask[:, -1], -3] + 2 * self.neuman_bc[self.neuman_mask[:, -1], -2] * self.dx
+        us[self.neuman_mask[:, -1], -1] = us[self.neuman_mask[:, -1], -3] + 2 * self.neuman_bc[self.neuman_mask[:, -1], -2] * self.dx
         # Bottom
-        self.us[self.neuman_mask[:, 0], 0] = self.us[self.neuman_mask[:, 0], 2] - 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
+        us[self.neuman_mask[:, 0], 0] = us[self.neuman_mask[:, 0], 2] + 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
+
+
+
+    def _set_bc_masks_1D(self, neuman_mask, dirichlet_mask):
+        """ Set 1D masks, call this for each boundary.
+            Input: Sections of boundary conditions.
+            Returns: PDE mask and gradient mask (for 1 step inwards). """
+
+        assert neuman_mask.shape == dirichlet_mask.shape
+
+        pde_mask = neuman_mask & ~dirichlet_mask
+        grad_mask = (neuman_mask & ~dirichlet_mask) | (~neuman_mask & ~dirichlet_mask)
+
+        return pde_mask, grad_mask
 
 
 if __name__ == "__main__":

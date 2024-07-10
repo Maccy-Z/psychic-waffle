@@ -46,7 +46,7 @@ class PDEForward(PDEHandler):
 
         us_dus = (us_grad, dudX, d2udX2)
         residuals = self.pde_func.residuals(us_dus, Xs)
-        resid_grad = residuals[self.u_grid.pde_mask]#[1:-1, 1:-1]]
+        resid_grad = residuals[self.u_grid.pde_mask[1:-1, 1:-1]]
         return resid_grad, resid_grad
 
     def only_resid(self):
@@ -56,7 +56,6 @@ class PDEForward(PDEHandler):
         residuals = self.pde_func.residuals(us_dus, Xs_bc)
 
         return residuals
-
 
     def get_dfs(self):
         """
@@ -78,6 +77,7 @@ class PDEForward(PDEHandler):
         with torch.no_grad():
             dfdtheta = torch.func.jacrev(self.forward, argnums=2)(Us, None, self.thetas)
         return dfdU, dfdtheta
+
 
 #
 # class PDE_adjoint(PDEHandler):

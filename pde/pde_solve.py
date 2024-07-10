@@ -1,8 +1,8 @@
 import torch
 from matplotlib import pyplot as plt
 import math
-import time
 import scipy.sparse.linalg as linalg
+import scipy.sparse as sparse
 import scipy
 from abc import ABC, abstractmethod
 
@@ -12,7 +12,7 @@ from PDE_utils import PDEHandler
 from utils import show_grid
 
 
-# scipy.sparse.linalg.use_solver(useUmfpack=True)
+# scipy.sparse.linalg.use_solver(useUmfpack=False)
 
 class Solver(ABC):
     """
@@ -60,15 +60,14 @@ class SolverNewton(Solver):
                 jacob, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, extra)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
 
                 # print(f'Residual: {torch.mean(torch.abs(residuals))}, iteration {i}')
-                show_grid(jacob)
+                # show_grid(jacob)
                 # if torch.mean(torch.abs(residuals)) < self.solve_acc:
                 #     break
 
                 # Flatten grid to vectors
                 residuals = residuals.flatten()
-                # jacob = jacob.view((self.N_points, self.N_points))
 
-                jacob *= self.lr  # Reduce update scale
+                # jacob *= self.lr  # Reduce update scale
 
                 # Use sparse solve on cpu, or dense solve on gpu
                 # Newton Raphson root finding
@@ -76,7 +75,12 @@ class SolverNewton(Solver):
                     deltas = torch.linalg.solve(jacob, residuals)
                 else:
                     jacob = jacob.numpy()
-                    deltas = linalg.spsolve(jacob, residuals)
+                    jacob = sparse.csr_matrix(jacob)
+
+                    deltas = linalg.spsolve(jacob, residuals, use_umfpack=False)
+                    # jacob = sparse.csr_matrix(jacob)
+                    # jacob = linalg.aslinearoperator(jacob)
+                    # deltas = linalg.lgmres(jacob, residuals)[0]
                     deltas = torch.tensor(deltas)
 
                 self.sol_grid.update_grid(deltas)
