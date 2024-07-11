@@ -24,19 +24,21 @@ class UGrid(abc.ABC):
         self.dx = X_grid.dx
         self.N = X_grid.N
 
-    def get_us_trainable(self):
+    def get_us_mask(self):
         """
-        Given an array, remove points that don't have gradient.
+        Return us, and mask of which elements are trainable. Used for masking Jacobian equations.
         """
-        us_grad = self.us[self.grad_mask]
-        return us_grad
+        return self.us, self.grad_mask, self.pde_mask
 
-    def add_nograd_to_us(self, us_grad):
+    def add_nograd_to_us(self, us_grad, mask=None):
         """
         Add points that don't have gradient to us. Used for Jacobian computation.
         """
+        if mask is None:
+            mask = self.grad_mask
+
         us_all = torch.clone(self.us)
-        us_all[self.grad_mask] = us_grad
+        us_all[mask] = us_grad
 
         # Neuman BCs also need to be set using us_grad to make sure gradient is tracked across boundary
         self._fix_neuman_bc(us_all)
@@ -278,7 +280,8 @@ class UGridOpen2D(UGrid2D):
         self.u_mask = (slice(1, -1), slice(1, -1))
 
         n_us = (self.N + 2).tolist()
-        self.us = torch.zeros(n_us).to(self.device)  # Shape: [N + 2, ...]
+        self.us = torch.arange(n_us[0] * n_us[1], dtype=torch.float32).reshape(n_us).to(self.device)
+        # self.us = torch.zeros(n_us).to(self.device)  # Shape: [N + 2, ...]
 
         # Mask of Dirichlet boundary conditions. Extended to include boundary points
         dirichlet_bc = torch.full_like(self.us, float("nan"))

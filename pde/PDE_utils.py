@@ -40,13 +40,17 @@ class PDEForward(PDEHandler):
             Returns residuals of equations that require gradients only.
 
         """
-        us_bc = self.u_grid.add_nograd_to_us(us_grad)  # Shape = [N+2, ...]. Need all Us to calculate derivatives.
+        us_grad_mask, pde_mask = extras
+
+        us_bc = self.u_grid.add_nograd_to_us(us_grad, us_grad_mask)  # Shape = [N+2, ...]. Need all Us to calculate derivatives.
         _, Xs = self.u_grid.get_real_us_Xs()
-        dudX, d2udX2 = self.deriv_calc.derivative(us_bc)
+        dudX, d2udX2 = self.deriv_calc.derivative(us_bc)            # shape = [N, ...]. Derivative removes boundary points.
 
         us_dus = (us_grad, dudX, d2udX2)
         residuals = self.pde_func.residuals(us_dus, Xs)
-        resid_grad = residuals[self.u_grid.pde_mask[1:-1, 1:-1]]
+        resid_grad = residuals[pde_mask]  # self.u_grid.pde_mask[1:-1, 1:-1]]
+
+        # resid_grad[9] = 0
         return resid_grad, resid_grad
 
     def only_resid(self):
