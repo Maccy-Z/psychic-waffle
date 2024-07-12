@@ -8,7 +8,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 import time
 
-from U_grid import UGrid, USubgrid
+from U_grid import UGrid, USplitGrid, UNormalGrid
 from X_grid import XGrid
 from PDE_utils import PDEHandler
 from utils import show_grid, get_split_indices
@@ -48,13 +48,13 @@ class Solver(ABC):
         else:
             A = A.numpy()
             b = b.numpy()
-            #deltas = linalg.spsolve(A, b, use_umfpack=False)
+            deltas = linalg.spsolve(A, b, use_umfpack=False)
 
-            A = sparse.csr_matrix(A)
-            A = linalg.aslinearoperator(A)
-            deltas = linalg.cg(A, b)[0]
+            # A = sparse.csr_matrix(A)
+            # A = linalg.aslinearoperator(A)
+            # deltas = linalg.cg(A, b)[0]
 
-            deltas = torch.tensor(deltas)
+            deltas = torch.from_numpy(deltas)
 
         return deltas
 
@@ -77,11 +77,11 @@ class SolverNewton(Solver):
             st = time.time()
 
             us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
-            pde_mask = pde_mask[1:-1, 1:-1]
-            extra = (us_grad_mask, pde_mask)
 
-            us_grad = us[us_grad_mask]
-            jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, extra)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
+            subgrid = UNormalGrid(self.sol_grid, us_grad_mask, pde_mask)
+
+            us_grad = subgrid.get_us_grad()
+            jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
 
             print(f"Time to calculate jacobian: {time.time() - st:.4g}")
             st = time.time()
@@ -114,7 +114,7 @@ class SolverNewtonSplit(Solver):
 
         # Sparsity pattern of Jacobian
         jacob_shape = self.sol_grid.N_us_train  # == len(torch.nonzero(us_grad_mask))
-        num_blocks = 48
+        num_blocks = 24
         split_idxs = get_split_indices(jacob_shape, num_blocks)
         block_size = jacob_shape // num_blocks
         us_stride = self.sol_grid.N[1]  # Stide of us in grid. Second element of N is the number of points in x direction. Overestimate.
@@ -158,7 +158,7 @@ class SolverNewtonSplit(Solver):
 
                 us_region_mask = (slice(a[0], b[0] + 1), slice(a[1], b[1] + 1))
 
-                subgrid = USubgrid(self.sol_grid, us_region_mask, us_grad_submask, pde_submask)
+                subgrid = USplitGrid(self.sol_grid, us_region_mask, us_grad_submask, pde_submask)
 
                 # Get Jacobian
                 us_grad = subgrid.get_us_grad()     # us[region][grad_mask]

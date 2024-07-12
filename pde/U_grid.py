@@ -369,32 +369,30 @@ class UGridOpen2D(UGrid2D):
         return pde_mask, grad_mask
 
 
-class USubgrid:
-    """  Transformed grid of Us to calculate derivatives.
-        Handles masking regions of grid to solve PDE.
-    """
+class USubGrid:
+    neuman_mask: torch.Tensor
+    neuman_bc: torch.Tensor
 
-    def __init__(self, us_grid: UGridOpen2D, region_mask: tuple[slice, ...], us_grad_mask: torch.Tensor, pde_mask: torch.Tensor):
-        self.device = us_grid.device
-        self.dx = us_grid.dx
-        self.region_mask = region_mask
-        # Region PDE is calculated is 1 unit inward from region_mask
-        self.inward_mask = tuple([adjust_slice(s, start_adjust=1, stop_adjust=-1) for s in region_mask])
+    us_grad_mask: torch.Tensor
+    pde_mask: torch.Tensor
 
-        # Us and Xs in region
-        all_us, all_Xs = us_grid.get_all_us_Xs()
-        self.us_region = all_us[region_mask]
-        self.Xs_region = all_Xs[self.inward_mask]
+    us_region: torch.Tensor
+    Xs_region: torch.Tensor
 
-        # Boundary conditions of region
-        self.dirichlet_mask = us_grid.dirichlet_mask[region_mask]
-        self.dirichlet_bc = us_grid.dirichlet_bc[region_mask]
-        self.neuman_mask = us_grid.neuman_mask[region_mask]
-        self.neuman_bc = us_grid.neuman_bc[region_mask]
+    def __init__(self, device, dx):
+        self.device = device
+        self.dx = dx
 
-        # Masks for derivatives
-        self.us_grad_mask = us_grad_mask[region_mask]  # Mask for which us have gradient and in region
-        self.pde_mask = pde_mask[self.inward_mask]  # Mask for PDES in region and selected for grad
+    def _fix_neuman_bc(self, us):
+        # Neuman BC. Setting imaginary values so derivatives on boundary are as given.
+        # Left
+        us[0, self.neuman_mask[0]] = us[2, self.neuman_mask[0]] + 2 * self.neuman_bc[1, self.neuman_mask[0]] * self.dx
+        # Right
+        us[-1, self.neuman_mask[-1]] = us[-3, self.neuman_mask[-1]] + 2 * self.neuman_bc[-2, self.neuman_mask[-1]] * self.dx
+        # Top
+        us[self.neuman_mask[:, -1], -1] = us[self.neuman_mask[:, -1], -3] + 2 * self.neuman_bc[self.neuman_mask[:, -1], -2] * self.dx
+        # Bottom
+        us[self.neuman_mask[:, 0], 0] = us[self.neuman_mask[:, 0], 2] + 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
 
     def get_us_grad(self):
         return self.us_region[self.us_grad_mask]
@@ -411,16 +409,56 @@ class USubgrid:
         self._fix_neuman_bc(us_all)
         return us_all
 
-    def _fix_neuman_bc(self, us):
-        # Neuman BC. Setting imaginary values so derivatives on boundary are as given.
-        # Left
-        us[0, self.neuman_mask[0]] = us[2, self.neuman_mask[0]] + 2 * self.neuman_bc[1, self.neuman_mask[0]] * self.dx
-        # Right
-        us[-1, self.neuman_mask[-1]] = us[-3, self.neuman_mask[-1]] + 2 * self.neuman_bc[-2, self.neuman_mask[-1]] * self.dx
-        # Top
-        us[self.neuman_mask[:, -1], -1] = us[self.neuman_mask[:, -1], -3] + 2 * self.neuman_bc[self.neuman_mask[:, -1], -2] * self.dx
-        # Bottom
-        us[self.neuman_mask[:, 0], 0] = us[self.neuman_mask[:, 0], 2] + 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
+
+class USplitGrid(USubGrid):
+    """  Transformed grid of Us to calculate derivatives.
+        Handles masking regions of grid to solve PDE.
+    """
+
+    def __init__(self, us_grid: UGridOpen2D, region_mask: tuple[slice, ...], us_grad_mask: torch.Tensor, pde_mask: torch.Tensor):
+        """ region_mask: Region of grid to calculate PDE in.
+            us_grad_mask: Mask of which us have gradient, over full grid. Shape = [N+2, ...]
+            pde_mask: Mask of which PDEs are used to fit us, over full grid. Shape = [N+2, ...]
+
+            Note both us_grad_mask and pde_mask have been set to False outside region_mask, but are full arrays.
+            """
+        super().__init__(us_grid.device, us_grid.dx)
+
+        self.region_mask = region_mask
+        # Region PDE is calculated is 1 unit inward from region_mask
+        self.inward_mask = tuple([adjust_slice(s, start_adjust=1, stop_adjust=-1) for s in region_mask])
+
+        # Us and Xs in region
+        all_us, all_Xs = us_grid.get_all_us_Xs()
+        self.us_region = all_us[region_mask]
+        self.Xs_region = all_Xs[self.inward_mask]
+
+        # Boundary conditions of region
+        # Dirichlet is already set, neuman needs to be dynamically set
+        self.neuman_mask = us_grid.neuman_mask[region_mask]
+        self.neuman_bc = us_grid.neuman_bc[region_mask]
+
+        # Masks for derivatives
+        self.us_grad_mask = us_grad_mask[region_mask]  # Mask for which us have gradient and in region
+        self.pde_mask = pde_mask[self.inward_mask]  # Mask for PDES in region and selected for grad
+
+
+class UNormalGrid(USubGrid):
+    """ Normal version of subgrid. Effectively placeholder that does nothing. """
+
+    def __init__(self, us_grid: UGridOpen2D, us_grad_mask: torch.Tensor, pde_mask: torch.Tensor):
+        super().__init__(us_grid.device, us_grid.dx)
+        all_us, all_Xs = us_grid.get_all_us_Xs()
+
+        self.us_grad_mask = us_grad_mask
+        self.pde_mask = pde_mask[1:-1, 1:-1]
+
+        self.us_region = all_us
+        self.Xs_region = all_Xs[1:-1, 1:-1]
+
+        self.neuman_mask = us_grid.neuman_mask
+        self.neuman_bc = us_grid.neuman_bc
+
 
 
 if __name__ == "__main__":

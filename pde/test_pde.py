@@ -15,7 +15,7 @@ DEVICE = "cpu"
 
 # Init grid
 xmin, xmax = torch.tensor([0, 0]), torch.tensor([1, 1])
-N = torch.tensor([151, 151])
+N = torch.tensor([121, 121])
 Xs_grid = XGrid2D(xmin, xmax, N, device=DEVICE)
 grid_N = Xs_grid.N.tolist()
 

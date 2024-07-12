@@ -3,7 +3,7 @@ import abc
 import math
 
 from discrete_derivative import DerivativeCalc
-from U_grid import UGrid2D, UGrid, USubgrid
+from U_grid import UGrid2D, UGrid, USplitGrid
 from X_grid import XGrid
 from PDEs import PDEFunc
 
@@ -33,7 +33,7 @@ class PDEForward(PDEHandler):
         self.u_grid = u_grid
         self.deriv_calc = deriv_calc
 
-    def residuals(self, us_grad, subgrid: USubgrid):
+    def residuals(self, us_grad, subgrid: USplitGrid):
         """
             Returns residuals of equations that require gradients only.
 
