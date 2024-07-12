@@ -51,10 +51,12 @@ class XGrid2D(XGrid):
         y_values = torch.linspace(Xmin[1] - self.dx, Xmax[1] + self.dx, self.N[1]+2)
 
         # Create the grid of points
-        n_grid, m_grid = torch.meshgrid(x_values, y_values, indexing='xy')
+        n_grid, m_grid = torch.meshgrid(y_values, x_values,indexing='xy')
+
 
         # Combine the grids to form the final N x M grid of points
-        self.Xs = torch.stack([n_grid, m_grid], dim=-1).to(self.device)
+        self.Xs = torch.stack([m_grid, n_grid], dim=-1).to(self.device)
+
 
 
 

@@ -8,7 +8,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 import time
 
-from U_grid import UGrid
+from U_grid import UGrid, USubgrid
 from X_grid import XGrid
 from PDE_utils import PDEHandler
 from utils import show_grid, get_split_indices
@@ -39,32 +39,24 @@ class Solver(ABC):
     def find_pde_root(self, extra=None):
         pass
 
+    def solve_linear(self, A: torch.Tensor, b: torch.Tensor):
+        """ Solve Ax = b for x """
+        # Use sparse solve on cpu, or dense solve on gpu
+        # Newton Raphson root finding
+        if self.device == 'cuda':
+            deltas = torch.linalg.solve(A, b)
+        else:
+            A = A.numpy()
+            b = b.numpy()
+            #deltas = linalg.spsolve(A, b, use_umfpack=False)
 
-def create_band_matrix(diagonal_values, off_diagonal_values, n, size):
-    """
-    Creates a matrix with specified diagonal elements and elements n rows/columns above and below the diagonal.
+            A = sparse.csr_matrix(A)
+            A = linalg.aslinearoperator(A)
+            deltas = linalg.cg(A, b)[0]
 
-    Parameters:
-    diagonal_values (float): Value to be filled in the main diagonal.
-    off_diagonal_values (float): Value to be filled in the diagonals n rows/columns above and below the main diagonal.
-    n (int): Number of rows/columns above and below the main diagonal.
-    size (int): Size of the square matrix.
+            deltas = torch.tensor(deltas)
 
-    Returns:
-    torch.Tensor: The resulting band matrix.
-    """
-    # Initialize the matrix with zeros
-    matrix = torch.zeros(size, size)
-
-    # Fill the main diagonal
-    matrix += torch.diag(torch.full((size,), diagonal_values))
-
-    # Fill the off diagonals
-    for i in range(1, n + 1):
-        matrix += torch.diag(torch.full((size - i,), off_diagonal_values), i)
-        matrix += torch.diag(torch.full((size - i,), off_diagonal_values), -i)
-
-    return matrix
+        return deltas
 
 
 class SolverNewton(Solver):
@@ -82,34 +74,26 @@ class SolverNewton(Solver):
         :param extra: Additional conditioning for the PDE
         """
         for i in range(self.N_iter):
+            st = time.time()
+
             us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
             pde_mask = pde_mask[1:-1, 1:-1]
             extra = (us_grad_mask, pde_mask)
 
             us_grad = us[us_grad_mask]
-            jacob, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, extra)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
+            jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, extra)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
 
-            # Flatten grid to vectors
-            residuals = residuals.flatten()
-            # jacob *= self.lr  # Reduce update scale
+            print(f"Time to calculate jacobian: {time.time() - st:.4g}")
+            st = time.time()
 
-            # Use sparse solve on cpu, or dense solve on gpu
-            # Newton Raphson root finding
-            if self.device == 'cuda':
-                deltas = torch.linalg.solve(jacob, residuals)
-            else:
-                jacob = jacob.numpy()
-                # jacob = sparse.csr_matrix(jacob)
-                # deltas = linalg.spsolve(jacob, residuals, use_umfpack=False)
-                jacob = sparse.csr_matrix(jacob)
-                jacob = linalg.aslinearoperator(jacob)
-                deltas = linalg.lgmres(jacob, residuals)[0]
-                deltas = torch.tensor(deltas)
+            deltas = self.solve_linear(jacobian, residuals)
+
+            print(f'Time to solve: {time.time() - st:.4g}')
             self.sol_grid.update_grid(deltas)
 
-            print(f'Residual: {torch.mean(torch.abs(residuals))}, iteration {i}')
-            if torch.mean(torch.abs(residuals)) < self.solve_acc:
-                break
+            # print(f'Residual: {torch.mean(torch.abs(residuals)):.3g}, iteration {i}')
+            # if torch.mean(torch.abs(residuals)) < self.solve_acc:
+            #     break
         # print("Final values:", self.sol_grid.get_with_bc().cpu())
 
 
@@ -130,22 +114,25 @@ class SolverNewtonSplit(Solver):
 
         # Sparsity pattern of Jacobian
         jacob_shape = self.sol_grid.N_us_train  # == len(torch.nonzero(us_grad_mask))
-        num_blocks = 8
+        num_blocks = 48
         split_idxs = get_split_indices(jacob_shape, num_blocks)
         block_size = jacob_shape // num_blocks
         us_stride = self.sol_grid.N[1]  # Stide of us in grid. Second element of N is the number of points in x direction. Overestimate.
 
         for i in range(self.N_iter):
-            us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
-            pde_mask = pde_mask[1:-1, 1:-1]
+            print()
+            st = time.time()
 
-            jacobian = torch.zeros((jacob_shape, jacob_shape))
+            us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
+
+            jacobian = torch.zeros((jacob_shape, jacob_shape), device=self.device)
+            residuals = torch.zeros(jacob_shape, device=self.device)
 
             # Build up Jacobian from sections of PDE and us for efficiency.
             for xmin, xmax in split_idxs:
                 # Diagonal blocks of Jacobian
-                ymin = np.clip(xmin - us_stride, 0, jacob_shape)
-                ymax = np.clip(xmin + block_size + us_stride, 0, jacob_shape)
+                ymin = torch.clip(xmin - us_stride, 0, jacob_shape)
+                ymax = torch.clip(xmin + block_size + us_stride, 0, jacob_shape)
                 pde_slice = slice(xmin, xmax)
                 us_slice = slice(ymin, ymax)
 
@@ -163,25 +150,36 @@ class SolverNewtonSplit(Solver):
                 us_grad_submask = torch.zeros_like(us_grad_mask)
                 us_grad_submask[want_us_idx[:, 0], want_us_idx[:, 1]] = True
 
+                # Further clip region PDE is calculated to around pde_mask and us_grad_mask to avoid unnecessary calculations
+                nonzero_idx = torch.nonzero(us_grad_submask)
+                a, b = torch.min(nonzero_idx, dim=0)[0], torch.max(nonzero_idx, dim=0)[0]
+                a, b = a - 1, b + 1  # Add one point of padding. This *should* always be enough depending on bc and pde_mask
+                a, b = torch.clamp(a, min=0), torch.clamp(b, min=0)
+
+                us_region_mask = (slice(a[0], b[0] + 1), slice(a[1], b[1] + 1))
+
+                subgrid = USubgrid(self.sol_grid, us_region_mask, us_grad_submask, pde_submask)
+
                 # Get Jacobian
-                masks = (us_grad_submask, pde_submask)
-                us_grad = us[us_grad_submask]
-                jacob, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, masks)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
+                us_grad = subgrid.get_us_grad()     # us[region][grad_mask]
+                jacob, resid = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
 
+                # Fill in calculated parts
                 jacobian[pde_slice, us_slice] = jacob
+                residuals[pde_slice] = resid.flatten()
 
-            sparsity = jacobian != 0
-            show_grid(sparsity, "Split Jacobian sparsity ")
-            print(torch.sum(sparsity) / sparsity.numel())
+            print(f"Time to calculate jacobian: {time.time() - st:.4g}")
+            st = time.time()
+
+            deltas = self.solve_linear(jacobian, residuals)
+
+            print(f'Time to solve: {time.time() - st:.4g}')
+
+            self.sol_grid.update_grid(deltas)
 
 
 def main():
-    Xmin, Xmax = 0, 2 * math.pi
-    N = 20
-    X_grid = XGrid(Xmin, Xmax, N, device='cuda')
-
-    print(X_grid)
-
+    raise NotImplementedError
 
 if __name__ == "__main__":
     main()

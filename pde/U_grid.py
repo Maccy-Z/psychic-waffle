@@ -2,6 +2,14 @@ import torch
 from torch import Tensor
 import abc
 from X_grid import XGrid
+from utils import show_grid
+
+
+def adjust_slice(slice_obj, start_adjust=0, stop_adjust=0):
+    """Adjust the given slice object by modifying its start and stop values."""
+    new_start = slice_obj.start + start_adjust
+    new_stop = slice_obj.stop + stop_adjust
+    return slice(new_start, new_stop)
 
 
 class UGrid(abc.ABC):
@@ -63,6 +71,7 @@ class UGrid(abc.ABC):
 
     @abc.abstractmethod
     def _fix_bc(self):
+        """ Fix boundary conditions. To be called after init and every update of grid."""
         pass
 
     @abc.abstractmethod
@@ -78,161 +87,161 @@ class UGrid(abc.ABC):
         self.pde_mask = self.pde_mask.cuda()
 
 
-class UGrid1D(UGrid):
-    """
-    Contains grid of points for solving PDE.
-    Handles and saves boundary conditions and masks.
-    """
-    pre_approved_bc: set = {'x0_lower', 'x0_upper'}
-    neuman_bc: dict
-    dirichlet_bc: dict
-
-    def __init__(self, X_grid: XGrid, dirichlet_bc: dict = None, neuman_bc: dict = None, device='cpu'):
-        super().__init__(X_grid, device)
-        self.N_dim = 1
-        self._init_bc_dict(dirichlet_bc, neuman_bc)
-
-        self.dx = X_grid.dx
-
-    def _init_bc_dict(self, dirichlet_bc, neuman_bc):
-        if dirichlet_bc is None:
-            dirichlet_bc = dict()
-        if neuman_bc is None:
-            neuman_bc = dict()
-        assert set(dirichlet_bc.keys()).issubset(self.pre_approved_bc), f'{dirichlet_bc.keys()} not in {self.pre_approved_bc}'
-        assert set(neuman_bc.keys()).issubset(self.pre_approved_bc), f'{neuman_bc.keys()} not in {self.pre_approved_bc}'
-        self.dirichlet_bc = dirichlet_bc
-        self.neuman_bc = neuman_bc
-
-    def remove_bc(self, us):
-        """
-        Given an array, remove points that don't have gradient.
-        """
-        us = us[self.u_mask]
-        return us
-
-    def update_grid(self, deltas):
-        """
-        deltas.shape = [N]
-        us -> us - deltas
-        """
-        self.us[self.grad_mask] -= deltas
-
-    def set_grid(self, new_us):
-        self.us[self.grad_mask] = new_us
-
-    def get_real_u_x(self):
-        """ Return all actual grid points, excluding fake boundaries. """
-        return self.us[self.u_mask], self.xs[self.u_mask]
-
-    @abc.abstractmethod
-    def get_with_bc(self):
-        """
-        Return grid of points with boundary conditions set.
-        """
-        pass
-
-    def __repr__(self):
-        return f"Grid of values, {self.us}"
-
-
-class UGridOpen1D(UGrid1D):
-    def __init__(self, X_grid: XGrid,
-                 dirichlet_bc: dict = None, neuman_bc: dict = None,
-                 device='cpu'):
-        """
-        :param L: Size of domain
-        :param N: Number of points PDE is enforced at
-        :param dirichlet_bc: Dict of {'left'/'right': Value at bc}. Set inside the grid
-        :param neuman_bc: Dict of {'left'/'right': Value at bc}. Set outside the grid
-
-        Add on extra terms at end of grid so derivatives can be taken at the boundary if needed.
-        PDE is constrained at N middle points (u0 - un-1), but derivatives are taken at N - N_boundary points.
-        Format of grid:
-            Only dirichlet:                 [E, u0=DL, u1,..., un-1=DR, E]
-            Dirichlet and Neuman on left:   [NL, u0=DL, u1,..., un-1, E]
-            Dirichlet left, Neuman right:   [E, u0=DL, u1,..., un-1, NR]
-            Neuman only:                    [NL, u0, u1,..., un-1, NR]
-        """
-        super().__init__(X_grid, dirichlet_bc, neuman_bc, device)
-
-        # Grid of points.
-        self.Xs = X_grid.xs
-        self.us = torch.zeros_like(self.Xs).to(self.device)  # Shape: [N + 2]
-
-        # Mask of where to compute gradients, no gradient at boundary
-        self.grad_mask = torch.ones_like(self.Xs).to(torch.bool).to(self.device)
-        if 'x0_lower' in self.dirichlet_bc:
-            self.grad_mask[1] = 0
-        if 'x0_upper' in self.dirichlet_bc:
-            self.grad_mask[-2] = 0
-        if 'x0_lower' in self.neuman_bc:
-            self.grad_mask[0] = 0
-        if 'x0_upper' in self.neuman_bc:
-            self.grad_mask[-1] = 0
-
-        # Mask of which elements are real
-        self.u_mask = (slice(1, -1),)
-
-    def get_with_bc(self):
-        if 'x0_lower' in self.dirichlet_bc:
-            self.us[1] = self.dirichlet_bc['x0_lower']
-        if 'x0_upper' in self.dirichlet_bc:
-            self.us[-2] = self.dirichlet_bc['x0_upper']
-
-        # Compute imaginary value so derivatives are as given.
-        if 'x0_lower' in self.neuman_bc:
-            self.us[0] = self.us[2] - 2 * self.neuman_bc['x0_lower'] * self.dx
-        if 'x0_upper' in self.neuman_bc:
-            self.us[-1] = self.us[-3] + 2 * self.neuman_bc['x0_upper'] * self.dx
-        return self.us
-
-
-class UGridClosed1D(UGrid1D):
-    """
-    Like a PDEGrid, but setting neuman boundary conditions with interior points instead of fantasy.
-    """
-
-    def __init__(self, X_grid: XGrid, dirichlet_bc: dict = None, neuman_bc: dict = None, device='cpu'):
-        """
-        :param L: Size of domain
-        :param N: Number of points PDE is enforced at
-        :param dirichlet_bc: Dict of {'left'/'right': Value at bc}. Set inside the grid
-        :param neuman_bc: Dict of {'left'/'right': Value at bc}. Set outside the grid
-        """
-        super().__init__(X_grid, dirichlet_bc, neuman_bc, device)
-
-        # Grid of points.
-        self.xs = X_grid.xs[1:-1]
-        self.us = torch.ones_like(self.xs).to(self.device)  # Shape: [N]
-
-        # Mask of where to compute gradients, no gradient at boundary
-        self.grad_mask = torch.ones_like(self.xs).to(torch.bool).to(self.device)
-        if 'x0_lower' in self.dirichlet_bc:
-            self.grad_mask[0] = 0
-        if 'x0_upper' in self.dirichlet_bc:
-            self.grad_mask[-1] = 0
-        if 'x0_lower' in self.neuman_bc:  # Don't use imaginary boundary if not needed
-            self.grad_mask[1] = 0
-        if 'x0_upper' in self.neuman_bc:
-            self.grad_mask[-2] = 0
-
-        # Mask of which elements are real
-        self.u_mask = torch.ones_like(self.xs).to(torch.bool).to(self.device)
-
-    def get_with_bc(self):
-        if 'x0_lower' in self.dirichlet_bc:
-            self.us[0] = self.dirichlet_bc['x0_lower']
-        if 'x0_upper' in self.dirichlet_bc:
-            self.us[-1] = self.dirichlet_bc['x0_upper']
-
-        # Use second order gradient approximation on boundary.
-        if 'x0_lower' in self.neuman_bc:
-            self.us[1] = 1 / 4 * (2 * self.neuman_bc['x0_lower'] * self.dx + 3 * self.us[0] + self.us[2])
-        if 'x0_upper' in self.neuman_bc:
-            self.us[-2] = 1 / 4 * (2 * self.neuman_bc['x0_upper'] * self.dx - 3 * self.us[-1] - self.us[-3])
-
-        return self.us
+# class UGrid1D(UGrid):
+#     """
+#     Contains grid of points for solving PDE.
+#     Handles and saves boundary conditions and masks.
+#     """
+#     pre_approved_bc: set = {'x0_lower', 'x0_upper'}
+#     neuman_bc: dict
+#     dirichlet_bc: dict
+#
+#     def __init__(self, X_grid: XGrid, dirichlet_bc: dict = None, neuman_bc: dict = None, device='cpu'):
+#         super().__init__(X_grid, device)
+#         self.N_dim = 1
+#         self._init_bc_dict(dirichlet_bc, neuman_bc)
+#
+#         self.dx = X_grid.dx
+#
+#     def _init_bc_dict(self, dirichlet_bc, neuman_bc):
+#         if dirichlet_bc is None:
+#             dirichlet_bc = dict()
+#         if neuman_bc is None:
+#             neuman_bc = dict()
+#         assert set(dirichlet_bc.keys()).issubset(self.pre_approved_bc), f'{dirichlet_bc.keys()} not in {self.pre_approved_bc}'
+#         assert set(neuman_bc.keys()).issubset(self.pre_approved_bc), f'{neuman_bc.keys()} not in {self.pre_approved_bc}'
+#         self.dirichlet_bc = dirichlet_bc
+#         self.neuman_bc = neuman_bc
+#
+#     def remove_bc(self, us):
+#         """
+#         Given an array, remove points that don't have gradient.
+#         """
+#         us = us[self.u_mask]
+#         return us
+#
+#     def update_grid(self, deltas):
+#         """
+#         deltas.shape = [N]
+#         us -> us - deltas
+#         """
+#         self.us[self.grad_mask] -= deltas
+#
+#     def set_grid(self, new_us):
+#         self.us[self.grad_mask] = new_us
+#
+#     def get_real_u_x(self):
+#         """ Return all actual grid points, excluding fake boundaries. """
+#         return self.us[self.u_mask], self.xs[self.u_mask]
+#
+#     @abc.abstractmethod
+#     def get_with_bc(self):
+#         """
+#         Return grid of points with boundary conditions set.
+#         """
+#         pass
+#
+#     def __repr__(self):
+#         return f"Grid of values, {self.us}"
+#
+#
+# class UGridOpen1D(UGrid1D):
+#     def __init__(self, X_grid: XGrid,
+#                  dirichlet_bc: dict = None, neuman_bc: dict = None,
+#                  device='cpu'):
+#         """
+#         :param L: Size of domain
+#         :param N: Number of points PDE is enforced at
+#         :param dirichlet_bc: Dict of {'left'/'right': Value at bc}. Set inside the grid
+#         :param neuman_bc: Dict of {'left'/'right': Value at bc}. Set outside the grid
+#
+#         Add on extra terms at end of grid so derivatives can be taken at the boundary if needed.
+#         PDE is constrained at N middle points (u0 - un-1), but derivatives are taken at N - N_boundary points.
+#         Format of grid:
+#             Only dirichlet:                 [E, u0=DL, u1,..., un-1=DR, E]
+#             Dirichlet and Neuman on left:   [NL, u0=DL, u1,..., un-1, E]
+#             Dirichlet left, Neuman right:   [E, u0=DL, u1,..., un-1, NR]
+#             Neuman only:                    [NL, u0, u1,..., un-1, NR]
+#         """
+#         super().__init__(X_grid, dirichlet_bc, neuman_bc, device)
+#
+#         # Grid of points.
+#         self.Xs = X_grid.xs
+#         self.us = torch.zeros_like(self.Xs).to(self.device)  # Shape: [N + 2]
+#
+#         # Mask of where to compute gradients, no gradient at boundary
+#         self.grad_mask = torch.ones_like(self.Xs).to(torch.bool).to(self.device)
+#         if 'x0_lower' in self.dirichlet_bc:
+#             self.grad_mask[1] = 0
+#         if 'x0_upper' in self.dirichlet_bc:
+#             self.grad_mask[-2] = 0
+#         if 'x0_lower' in self.neuman_bc:
+#             self.grad_mask[0] = 0
+#         if 'x0_upper' in self.neuman_bc:
+#             self.grad_mask[-1] = 0
+#
+#         # Mask of which elements are real
+#         self.u_mask = (slice(1, -1),)
+#
+#     def get_with_bc(self):
+#         if 'x0_lower' in self.dirichlet_bc:
+#             self.us[1] = self.dirichlet_bc['x0_lower']
+#         if 'x0_upper' in self.dirichlet_bc:
+#             self.us[-2] = self.dirichlet_bc['x0_upper']
+#
+#         # Compute imaginary value so derivatives are as given.
+#         if 'x0_lower' in self.neuman_bc:
+#             self.us[0] = self.us[2] - 2 * self.neuman_bc['x0_lower'] * self.dx
+#         if 'x0_upper' in self.neuman_bc:
+#             self.us[-1] = self.us[-3] + 2 * self.neuman_bc['x0_upper'] * self.dx
+#         return self.us
+#
+#
+# class UGridClosed1D(UGrid1D):
+#     """
+#     Like a PDEGrid, but setting neuman boundary conditions with interior points instead of fantasy.
+#     """
+#
+#     def __init__(self, X_grid: XGrid, dirichlet_bc: dict = None, neuman_bc: dict = None, device='cpu'):
+#         """
+#         :param L: Size of domain
+#         :param N: Number of points PDE is enforced at
+#         :param dirichlet_bc: Dict of {'left'/'right': Value at bc}. Set inside the grid
+#         :param neuman_bc: Dict of {'left'/'right': Value at bc}. Set outside the grid
+#         """
+#         super().__init__(X_grid, dirichlet_bc, neuman_bc, device)
+#
+#         # Grid of points.
+#         self.xs = X_grid.xs[1:-1]
+#         self.us = torch.ones_like(self.xs).to(self.device)  # Shape: [N]
+#
+#         # Mask of where to compute gradients, no gradient at boundary
+#         self.grad_mask = torch.ones_like(self.xs).to(torch.bool).to(self.device)
+#         if 'x0_lower' in self.dirichlet_bc:
+#             self.grad_mask[0] = 0
+#         if 'x0_upper' in self.dirichlet_bc:
+#             self.grad_mask[-1] = 0
+#         if 'x0_lower' in self.neuman_bc:  # Don't use imaginary boundary if not needed
+#             self.grad_mask[1] = 0
+#         if 'x0_upper' in self.neuman_bc:
+#             self.grad_mask[-2] = 0
+#
+#         # Mask of which elements are real
+#         self.u_mask = torch.ones_like(self.xs).to(torch.bool).to(self.device)
+#
+#     def get_with_bc(self):
+#         if 'x0_lower' in self.dirichlet_bc:
+#             self.us[0] = self.dirichlet_bc['x0_lower']
+#         if 'x0_upper' in self.dirichlet_bc:
+#             self.us[-1] = self.dirichlet_bc['x0_upper']
+#
+#         # Use second order gradient approximation on boundary.
+#         if 'x0_lower' in self.neuman_bc:
+#             self.us[1] = 1 / 4 * (2 * self.neuman_bc['x0_lower'] * self.dx + 3 * self.us[0] + self.us[2])
+#         if 'x0_upper' in self.neuman_bc:
+#             self.us[-2] = 1 / 4 * (2 * self.neuman_bc['x0_upper'] * self.dx - 3 * self.us[-1] - self.us[-3])
+#
+#         return self.us
 
 
 class UGrid2D(UGrid):
@@ -287,14 +296,12 @@ class UGridOpen2D(UGrid2D):
         dirichlet_bc = torch.full_like(self.us, float("nan"))
         dirichlet_bc[1:-1, 1:-1] = self.dirichlet_bc
         self.dirichlet_bc = dirichlet_bc
-
         self.dirichlet_mask = ~torch.isnan(self.dirichlet_bc)
 
         # Mask of Neuman boundary conditions. Extended to include boundary points
         neuman_bc = torch.full_like(self.us, float("nan"))
         neuman_bc[1:-1, 1:-1] = self.neuman_bc
         self.neuman_bc = neuman_bc
-
         self.neuman_mask = torch.zeros_like(self.us).to(torch.bool)
         # Left
         self.neuman_mask[0] = ~torch.isnan(self.neuman_bc[1, :])
@@ -335,16 +342,7 @@ class UGridOpen2D(UGrid2D):
     def _fix_bc(self):
         # Dirichlet BC
         self.us[self.dirichlet_mask] = self.dirichlet_bc[self.dirichlet_mask]
-
         self._fix_neuman_bc(self.us)
-        # # Left
-        # self.us[0, self.neuman_mask[0]] = self.us[2, self.neuman_mask[0]] - 2 * self.neuman_bc[1, self.neuman_mask[0]] * self.dx
-        # # Right
-        # self.us[-1, self.neuman_mask[-1]] = self.us[-3, self.neuman_mask[-1]] + 2 * self.neuman_bc[-2, self.neuman_mask[-1]] * self.dx
-        # # Top
-        # self.us[self.neuman_mask[:, -1], -1] = self.us[self.neuman_mask[:, -1], -3] + 2 * self.neuman_bc[self.neuman_mask[:, -1], -2] * self.dx
-        # # Bottom
-        # self.us[self.neuman_mask[:, 0], 0] = self.us[self.neuman_mask[:, 0], 2] - 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
 
     def _fix_neuman_bc(self, us):
         # Neuman BC. Setting imaginary values so derivatives on boundary are as given.
@@ -358,8 +356,6 @@ class UGridOpen2D(UGrid2D):
         # Bottom
         us[self.neuman_mask[:, 0], 0] = us[self.neuman_mask[:, 0], 2] + 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
 
-
-
     def _set_bc_masks_1D(self, neuman_mask, dirichlet_mask):
         """ Set 1D masks, call this for each boundary.
             Input: Sections of boundary conditions.
@@ -371,6 +367,60 @@ class UGridOpen2D(UGrid2D):
         grad_mask = (neuman_mask & ~dirichlet_mask) | (~neuman_mask & ~dirichlet_mask)
 
         return pde_mask, grad_mask
+
+
+class USubgrid:
+    """  Transformed grid of Us to calculate derivatives.
+        Handles masking regions of grid to solve PDE.
+    """
+
+    def __init__(self, us_grid: UGridOpen2D, region_mask: tuple[slice, ...], us_grad_mask: torch.Tensor, pde_mask: torch.Tensor):
+        self.device = us_grid.device
+        self.dx = us_grid.dx
+        self.region_mask = region_mask
+        # Region PDE is calculated is 1 unit inward from region_mask
+        self.inward_mask = tuple([adjust_slice(s, start_adjust=1, stop_adjust=-1) for s in region_mask])
+
+        # Us and Xs in region
+        all_us, all_Xs = us_grid.get_all_us_Xs()
+        self.us_region = all_us[region_mask]
+        self.Xs_region = all_Xs[self.inward_mask]
+
+        # Boundary conditions of region
+        self.dirichlet_mask = us_grid.dirichlet_mask[region_mask]
+        self.dirichlet_bc = us_grid.dirichlet_bc[region_mask]
+        self.neuman_mask = us_grid.neuman_mask[region_mask]
+        self.neuman_bc = us_grid.neuman_bc[region_mask]
+
+        # Masks for derivatives
+        self.us_grad_mask = us_grad_mask[region_mask]  # Mask for which us have gradient and in region
+        self.pde_mask = pde_mask[self.inward_mask]  # Mask for PDES in region and selected for grad
+
+    def get_us_grad(self):
+        return self.us_region[self.us_grad_mask]
+
+    def add_nograd_to_us(self, us_grad):
+        """
+        Add points that don't have gradient to us. Used for Jacobian computation.
+        """
+
+        us_all = torch.clone(self.us_region)
+        us_all[self.us_grad_mask] = us_grad
+
+        # Neuman BCs also need to be set using us_grad to make sure gradient is tracked across boundary
+        self._fix_neuman_bc(us_all)
+        return us_all
+
+    def _fix_neuman_bc(self, us):
+        # Neuman BC. Setting imaginary values so derivatives on boundary are as given.
+        # Left
+        us[0, self.neuman_mask[0]] = us[2, self.neuman_mask[0]] + 2 * self.neuman_bc[1, self.neuman_mask[0]] * self.dx
+        # Right
+        us[-1, self.neuman_mask[-1]] = us[-3, self.neuman_mask[-1]] + 2 * self.neuman_bc[-2, self.neuman_mask[-1]] * self.dx
+        # Top
+        us[self.neuman_mask[:, -1], -1] = us[self.neuman_mask[:, -1], -3] + 2 * self.neuman_bc[self.neuman_mask[:, -1], -2] * self.dx
+        # Bottom
+        us[self.neuman_mask[:, 0], 0] = us[self.neuman_mask[:, 0], 2] + 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
 
 
 if __name__ == "__main__":

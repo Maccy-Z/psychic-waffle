@@ -13,11 +13,12 @@ def show_grid(u: torch.Tensor, title=None):
     elif u.ndim > 2:
         raise ValueError("Input must be a 1D or 2D array")
 
-    plt.figure(figsize=(8, 6))
+    plt.figure()
     plt.imshow(u.T.cpu().detach(), cmap='viridis', origin='lower')
     plt.colorbar()
     if title is not None:
         plt.title(title)
+    plt.tight_layout()
     plt.show()
 
 

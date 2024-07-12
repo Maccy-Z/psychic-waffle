@@ -2,8 +2,8 @@ import torch
 import abc
 import math
 
-from DiscreteDerivative import DerivativeCalc
-from U_grid import UGrid2D, UGrid
+from discrete_derivative import DerivativeCalc
+from U_grid import UGrid2D, UGrid, USubgrid
 from X_grid import XGrid
 from PDEs import PDEFunc
 
@@ -33,24 +33,23 @@ class PDEForward(PDEHandler):
         self.u_grid = u_grid
         self.deriv_calc = deriv_calc
 
-    def residuals(self, us_grad, extras):
-        """ us.shape = [N, ...], with boundary points
-            Xs.shape = [N, ...], no boundary points
-
+    def residuals(self, us_grad, subgrid: USubgrid):
+        """
             Returns residuals of equations that require gradients only.
 
         """
-        us_grad_mask, pde_mask = extras
 
-        us_bc = self.u_grid.add_nograd_to_us(us_grad, us_grad_mask)  # Shape = [N+2, ...]. Need all Us to calculate derivatives.
-        _, Xs = self.u_grid.get_real_us_Xs()
-        dudX, d2udX2 = self.deriv_calc.derivative(us_bc)            # shape = [N, ...]. Derivative removes boundary points.
+        us_bc = subgrid.add_nograd_to_us(us_grad)  # Shape = [N+2, ...]. Need all Us to calculate derivatives.
+        Xs = subgrid.Xs_region  # Shape = [N, ...]. Only need Xs for residuals.
+
+        dudX, d2udX2 = self.deriv_calc.derivative(us_bc)  # shape = [N, ...]. Derivative removes boundary points.
 
         us_dus = (us_grad, dudX, d2udX2)
-        residuals = self.pde_func.residuals(us_dus, Xs)
-        resid_grad = residuals[pde_mask]  # self.u_grid.pde_mask[1:-1, 1:-1]]
 
-        # resid_grad[9] = 0
+        residuals = self.pde_func.residuals(us_dus, Xs)
+
+        resid_grad = residuals[subgrid.pde_mask]
+
         return resid_grad, resid_grad
 
     def only_resid(self):

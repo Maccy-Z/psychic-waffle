@@ -4,7 +4,7 @@ import time
 from X_grid import XGrid2D
 from U_grid import UGridOpen2D
 from utils import show_grid
-from DiscreteDerivative import DerivativeCalc2D
+from discrete_derivative import DerivativeCalc2D
 from PDEs import Poisson
 from PDE_utils import PDEForward
 from pde_solve import SolverNewtonSplit, SolverNewton
@@ -15,7 +15,7 @@ DEVICE = "cpu"
 
 # Init grid
 xmin, xmax = torch.tensor([0, 0]), torch.tensor([1, 1])
-N = torch.tensor([11, 11])
+N = torch.tensor([151, 151])
 Xs_grid = XGrid2D(xmin, xmax, N, device=DEVICE)
 grid_N = Xs_grid.N.tolist()
 
@@ -39,7 +39,7 @@ us_grid = UGridOpen2D(Xs_grid, dirichlet_bc=dirichlet_bc, neuman_bc=neuman_bc)
 deriv_calc = DerivativeCalc2D(Xs_grid, order=2)
 pde_fn = Poisson()
 pde_handle = PDEForward(us_grid, pde_fn, deriv_calc)
-solver = SolverNewton(pde_handle, us_grid, N_iter=5, lr=1.)
+solver = SolverNewtonSplit(pde_handle, us_grid, N_iter=5, lr=1.)
 
 # # Coordinates
 # us_bc, Xs_bc = us_grid.get_all_us_Xs()
