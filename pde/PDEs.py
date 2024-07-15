@@ -32,6 +32,8 @@ class Poisson(PDEFunc):
 
         u, dudX, d2udX2 = u_dus
 
-        return d2udX2[0] + d2udX2[1]
+        # print(f'{u.shape = }, {dudX.shape = }, {d2udX2.shape = }')
+
+        return d2udX2[1] + 5 * u
 
 

@@ -289,7 +289,7 @@ class UGridOpen2D(UGrid2D):
         self.u_mask = (slice(1, -1), slice(1, -1))
 
         n_us = (self.N + 2).tolist()
-        self.us = torch.arange(n_us[0] * n_us[1], dtype=torch.float32).reshape(n_us).to(self.device)
+        self.us = torch.zeros(n_us, dtype=torch.float32).to(self.device)
         # self.us = torch.zeros(n_us).to(self.device)  # Shape: [N + 2, ...]
 
         # Mask of Dirichlet boundary conditions. Extended to include boundary points
@@ -377,7 +377,8 @@ class USubGrid:
     pde_mask: torch.Tensor
 
     us_region: torch.Tensor
-    Xs_region: torch.Tensor
+    us_pde: torch.Tensor
+    Xs_pde: torch.Tensor
 
     def __init__(self, device, dx):
         self.device = device
@@ -428,10 +429,11 @@ class USplitGrid(USubGrid):
         # Region PDE is calculated is 1 unit inward from region_mask
         self.inward_mask = tuple([adjust_slice(s, start_adjust=1, stop_adjust=-1) for s in region_mask])
 
-        # Us and Xs in region
+        # Us in region and us used for PDE and Xs for PDE
         all_us, all_Xs = us_grid.get_all_us_Xs()
         self.us_region = all_us[region_mask]
-        self.Xs_region = all_Xs[self.inward_mask]
+        self.us_pde = all_us[self.inward_mask]
+        self.Xs_pde = all_Xs[self.inward_mask].permute(2, 0, 1)
 
         # Boundary conditions of region
         # Dirichlet is already set, neuman needs to be dynamically set
@@ -454,7 +456,7 @@ class UNormalGrid(USubGrid):
         self.pde_mask = pde_mask[1:-1, 1:-1]
 
         self.us_region = all_us
-        self.Xs_region = all_Xs[1:-1, 1:-1]
+        self.Xs_pde = all_Xs[1:-1, 1:-1].permute(2, 0, 1)
 
         self.neuman_mask = us_grid.neuman_mask
         self.neuman_bc = us_grid.neuman_bc

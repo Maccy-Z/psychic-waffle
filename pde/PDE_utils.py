@@ -40,11 +40,13 @@ class PDEForward(PDEHandler):
         """
 
         us_bc = subgrid.add_nograd_to_us(us_grad)  # Shape = [N+2, ...]. Need all Us to calculate derivatives.
-        Xs = subgrid.Xs_region  # Shape = [N, ...]. Only need Xs for residuals.
+        Xs = subgrid.Xs_pde  # Shape = [N, ...]. Only need Xs for residuals.
+        us = us_bc[1:-1, 1:-1]
 
+        # print(f'{us.shape = }, {Xs.shape = }')
         dudX, d2udX2 = self.deriv_calc.derivative(us_bc)  # shape = [N, ...]. Derivative removes boundary points.
 
-        us_dus = (us_grad, dudX, d2udX2)
+        us_dus = (us, dudX, d2udX2)
 
         residuals = self.pde_func.residuals(us_dus, Xs)
 
@@ -55,7 +57,9 @@ class PDEForward(PDEHandler):
     def only_resid(self):
         us_bc, Xs_bc = self.u_grid.get_all_us_Xs()
         dudX, d2udX2 = self.deriv_calc.derivative(us_bc)
-        us_dus = (us_bc, dudX, d2udX2)
+        us, _ = self.u_grid.get_real_us_Xs()
+
+        us_dus = (us, dudX, d2udX2)
         residuals = self.pde_func.residuals(us_dus, Xs_bc)
 
         return residuals

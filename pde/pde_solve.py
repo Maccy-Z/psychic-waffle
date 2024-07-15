@@ -46,13 +46,15 @@ class Solver(ABC):
         if self.device == 'cuda':
             deltas = torch.linalg.solve(A, b)
         else:
+            # deltas = torch.linalg.solve(A, b)
+
             A = A.numpy()
             b = b.numpy()
-            deltas = linalg.spsolve(A, b, use_umfpack=False)
+            deltas = linalg.spsolve(A, b, use_umfpack=True)
 
             # A = sparse.csr_matrix(A)
             # A = linalg.aslinearoperator(A)
-            # deltas = linalg.cg(A, b)[0]
+            # deltas = linalg.bicg(A, b)[0]
 
             deltas = torch.from_numpy(deltas)
 
@@ -161,7 +163,7 @@ class SolverNewtonSplit(Solver):
                 subgrid = USplitGrid(self.sol_grid, us_region_mask, us_grad_submask, pde_submask)
 
                 # Get Jacobian
-                us_grad = subgrid.get_us_grad()     # us[region][grad_mask]
+                us_grad = subgrid.get_us_grad()  # us[region][grad_mask]
                 jacob, resid = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
 
                 # Fill in calculated parts
@@ -172,14 +174,18 @@ class SolverNewtonSplit(Solver):
             st = time.time()
 
             deltas = self.solve_linear(jacobian, residuals)
+            deltas *= self.lr
 
             print(f'Time to solve: {time.time() - st:.4g}')
 
             self.sol_grid.update_grid(deltas)
-
+            #print(f'Residual: {torch.mean(torch.abs(residuals)):.3g}, iteration {i}')
+            # if torch.mean(torch.abs(residuals)) < self.solve_acc:
+            #     break
 
 def main():
     raise NotImplementedError
+
 
 if __name__ == "__main__":
     main()
