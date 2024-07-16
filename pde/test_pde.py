@@ -15,7 +15,7 @@ DEVICE = "cuda"
 
 # Init grid
 xmin, xmax = 0, 1
-N = torch.tensor([51, 31])
+N = torch.tensor([151, 151])
 Xs_grid = XGrid2D(xmin, xmax, N, device=DEVICE)
 grid_N = Xs_grid.N.tolist()
 
@@ -39,7 +39,7 @@ us_grid = UGridOpen2D(Xs_grid, dirichlet_bc=dirichlet_bc, neuman_bc=neuman_bc)
 deriv_calc = DerivativeCalc2D(Xs_grid, order=2)
 pde_fn = Poisson()
 pde_handle = PDEForward(us_grid, pde_fn, deriv_calc)
-solver = SolverNewtonSplit(pde_handle, us_grid, N_iter=5, lr=1)
+solver = SolverNewtonSplit(pde_handle, us_grid, solver="sparse", N_iter=50, lr=1)
 
 # Solve
 solver.find_pde_root()

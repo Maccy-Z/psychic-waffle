@@ -7,11 +7,65 @@ import scipy
 import numpy as np
 from abc import ABC, abstractmethod
 import time
+import cupy as cp
+import cupyx.scipy.sparse as sp
+import cupyx.scipy.sparse.linalg as sp_linalg
+from cprint import c_print
+from typing import Literal, Callable
 
 from U_grid import UGrid, USplitGrid, UNormalGrid
 from X_grid import XGrid
 from PDE_utils import PDEHandler
 from utils import show_grid, get_split_indices
+
+
+class LinearEquation:
+    """ Solve Ax = b for x """
+    solver: Callable
+
+    def __init__(self, mode: Literal['sparse', 'dense'], device: str):
+        if device == "cuda":
+            if mode == "dense":
+                self.solver = self.cuda_dense
+            elif mode == "sparse":
+                self.solver = self.cuda_sparse
+
+        elif device == "cpu":
+            if mode == "dense":
+                self.solver = self.cpu_dense
+            elif mode == "sparse":
+                self.solver = self.cpu_sparse
+
+    def cuda_sparse(self, A: torch.Tensor, b: torch.Tensor):
+        A_cupy = cp.from_dlpack(A)
+        b_cupy = cp.from_dlpack(b)
+
+        # Convert the dense matrix A_cupy to a sparse CSR matrix
+        A_sparse_cupy = sp.csr_matrix(A_cupy)
+
+        # Solve the sparse linear system Ax = b using CuPy
+        x = sp_linalg.spsolve(A_sparse_cupy, b_cupy)
+
+        x = torch.from_dlpack(x)
+        return x
+
+    def cuda_dense(self, A: torch.Tensor, b: torch.Tensor):
+        deltas = torch.linalg.solve(A, b)
+        return deltas
+
+    def cpu_sparse(self, A: torch.Tensor, b: torch.Tensor):
+        A = A.numpy()
+        b = b.numpy()
+        deltas = linalg.spsolve(A, b, use_umfpack=True)
+        deltas = torch.from_numpy(deltas)
+        return deltas
+
+    def cpu_dense(self, A: torch.Tensor, b: torch.Tensor):
+        deltas = torch.linalg.solve(A, b)
+        return deltas
+
+    def solve(self, A: torch.Tensor, b: torch.Tensor):
+        return self.solver(A, b)
 
 
 class Solver(ABC):
@@ -22,9 +76,12 @@ class Solver(ABC):
         PDE(u_i-1, u_i, u_i+1) = 0 for i = 1, ..., N
     """
 
-    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid, device='cpu'):
+    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid, solver: Literal['sparse', 'dense'], acc, device='cpu'):
         self.pde_func = pde_func
         self.sol_grid = sol_grid
+        self.solve_acc = acc
+
+        self.solver = LinearEquation(solver, device)
 
         self.device = device
 
@@ -35,38 +92,25 @@ class Solver(ABC):
             plt.title(title)
         plt.show()
 
+    def terminate(self, residuals, i):
+        c_print(f'Residual: {torch.mean(torch.abs(residuals)):.3g}, iteration {i}', color='cyan')
+
+        return torch.mean(torch.abs(residuals)) < self.solve_acc
+
     @abstractmethod
     def find_pde_root(self, extra=None):
         pass
 
     def solve_linear(self, A: torch.Tensor, b: torch.Tensor):
-        """ Solve Ax = b for x """
-        # Use sparse solve on cpu, or dense solve on gpu
-        # Newton Raphson root finding
-        if self.device == 'cuda':
-            deltas = torch.linalg.solve(A, b)
-        else:
-            # deltas = torch.linalg.solve(A, b)
-
-            A = A.numpy()
-            b = b.numpy()
-            deltas = linalg.spsolve(A, b, use_umfpack=True)
-
-            # A = sparse.csr_matrix(A)
-            # A = linalg.aslinearoperator(A)
-            # deltas = linalg.bicg(A, b)[0]
-
-            deltas = torch.from_numpy(deltas)
-
+        deltas = self.solver.solve(A, b)
         return deltas
 
 
 class SolverNewton(Solver):
-    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid, N_iter: int, lr=1., acc: float = 1e-4):
-        super().__init__(pde_func, sol_grid, sol_grid.device)
+    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid, solver: Literal['sparse', 'dense'], N_iter: int, lr=1., acc: float = 1e-4):
+        super().__init__(pde_func, sol_grid, solver, acc, sol_grid.device)
         self.N_iter = N_iter
         self.lr = lr
-        self.solve_acc = acc
         self.N_points = sol_grid.N.prod()
 
     @torch.no_grad()
@@ -100,11 +144,10 @@ class SolverNewton(Solver):
 
 
 class SolverNewtonSplit(Solver):
-    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid, N_iter: int, lr=1., acc: float = 1e-4):
-        super().__init__(pde_func, sol_grid, sol_grid.device)
+    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid, solver: Literal['sparse', 'dense'], N_iter: int, lr=1., acc: float = 1e-4):
+        super().__init__(pde_func, sol_grid, solver, acc, sol_grid.device)
         self.N_iter = N_iter
         self.lr = lr
-        self.solve_acc = acc
         self.N_points = sol_grid.N.prod()
 
     @torch.no_grad()
@@ -116,7 +159,7 @@ class SolverNewtonSplit(Solver):
 
         # Sparsity pattern of Jacobian
         jacob_shape = self.sol_grid.N_us_train  # == len(torch.nonzero(us_grad_mask))
-        num_blocks = 24
+        num_blocks = 16
         split_idxs = get_split_indices(jacob_shape, num_blocks)
         block_size = jacob_shape // num_blocks
         us_stride = self.sol_grid.N[1]  # Stide of us in grid. Second element of N is the number of points in x direction. Overestimate.
@@ -131,6 +174,7 @@ class SolverNewtonSplit(Solver):
             residuals = torch.zeros(jacob_shape, device=self.device)
 
             # Build up Jacobian from sections of PDE and us for efficiency.
+            # Rectangular blocks of Jacobian between [xmin, xmax] and [ymin, ymax]
             for xmin, xmax in split_idxs:
                 # Diagonal blocks of Jacobian
                 ymin = torch.clip(xmin - us_stride, 0, jacob_shape)
@@ -179,9 +223,10 @@ class SolverNewtonSplit(Solver):
             print(f'Time to solve: {time.time() - st:.4g}')
 
             self.sol_grid.update_grid(deltas)
-            #print(f'Residual: {torch.mean(torch.abs(residuals)):.3g}, iteration {i}')
-            # if torch.mean(torch.abs(residuals)) < self.solve_acc:
-            #     break
+
+            if self.terminate(residuals, i):
+                print("Converged")
+
 
 def main():
     raise NotImplementedError
