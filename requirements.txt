@@ -2,6 +2,7 @@ matplotlib
 numpy
 # pandas
 scipy
+codetiming
 #scikit-umfpack
 torch
 # xitorch

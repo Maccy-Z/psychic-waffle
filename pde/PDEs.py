@@ -20,20 +20,25 @@ class Poisson(PDEFunc):
         """
         Args:
             u_dus: Values of u, du/dx, d2u/dx2
-            Xs: Grid points
+            Xs: Grid points.
             thetas: model parameters
 
         f(u, du/dX, d2u/dX2, X, thetas) = 0
 
-        dudX.shape = [N_dim, N, N]
-        Returns: PDE residual (=0 for exact solution), shape=[N, N]
+        input.shape = [N_dim, Nx, Ny]
+        Returns: PDE residual (=0 for exact solution), shape=[Nx, Ny]
 
         """
 
         u, dudX, d2udX2 = u_dus
 
-        # print(f'{u.shape = }, {dudX.shape = }, {d2udX2.shape = }')
+        x_min, x_max = 0.25, 0.5
+        y_min, y_max = 0.5, 0.6
 
-        return d2udX2[1] + 5 * u
+        x, y = Xs
 
+        x_masks = (x > x_min) & (x < x_max)
+        y_masks = (y > y_min) & (y < y_max)
+        charge = 100 * (x_masks & y_masks)
 
+        return d2udX2[1] + d2udX2[0] + charge
