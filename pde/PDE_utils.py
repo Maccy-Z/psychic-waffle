@@ -1,4 +1,6 @@
 import torch
+from torch.func import functional_call, vmap, grad
+
 import abc
 import math
 
@@ -64,26 +66,59 @@ class PDEForward(PDEHandler):
 
         return residuals
 
-    # def get_dfs(self):
-    #     """
-    #     Returns dfdu, dfdu_x, dfdu_xx, dfdtheta
-    #     """
-    #     # Calculate u_x, u_xx
-    #     us_bc = self.u_grid.get_with_bc()  # Shape = [N+2]
-    #     us = self.u_grid.remove_bc(us_bc)  # Shape = [N]
-    #     dudx, d2udx2 = self.deriv_calc.derivative(us_bc)  # Shape = [N]
-    #     Us = torch.stack([us, dudx, d2udx2], dim=0).requires_grad_(True)
-    #
-    #     # Calculate dfdu, dfdu_x, dfdu_xx
-    #     residuals = self.pde_func.residuals(Us, None)
-    #     residuals.backward(gradient=torch.ones_like(residuals))
-    #
-    #     dfdU = Us.grad  # dfdu, dfdu_x, dfdu_xx, Shape = [3, N]
-    #
-    #     # Get dfdtheta using Jacobian
-    #     with torch.no_grad():
-    #         dfdtheta = torch.func.jacrev(self.forward, argnums=2)(Us, None, self.thetas)
-    #     return dfdU, dfdtheta
+    def get_dfs(self):
+        """
+        Gets gradients of f at current state U
+        Returns: [dfdu, dfdu_x, dfdu_xx]
+                  dfdtheta: dict of df/dtheta at each point, for each param group
+        """
+        # 1) Calculate u_x, u_xx
+        N = self.u_grid.N
+        us_bc, _ = self.u_grid.get_all_us_Xs()  # Shape = [N+2]
+        us, Xs = self.u_grid.get_real_us_Xs()  # Shape = [N]
+        dudx, d2udx2 = self.deriv_calc.derivative(us_bc)  # Shape = [N]
+
+        # 2) Calculate dfdu, dfdu_x, dfdu_xx
+        us = us.unsqueeze(0)
+        Xs = Xs.permute(2, 0, 1)
+        us.requires_grad_(True), dudx.requires_grad_(True), d2udx2.requires_grad_(True)
+        dUs = [us, dudx, d2udx2]
+        residuals = self.pde_func.residuals(dUs, Xs=Xs)
+
+        residuals.backward(gradient=torch.ones_like(residuals))
+
+        dfdu = us.grad
+        dfdux = dudx.grad
+        dfduxx = d2udx2.grad
+
+        # If a function isn't used, the gradient is None. Set to zeros.
+        if dfdu is None:
+            dfdu = torch.zeros_like(us)
+        if dfdux is None:
+            dfdux = torch.zeros_like(dudx)
+        if dfduxx is None:
+            dfduxx = torch.zeros_like(d2udx2)
+
+        dfdU = [dfdu, dfdux, dfduxx]        # shape = [N, ...]
+
+        # print(f'{us.shape = }, {dfdu.shape = }, {dfdux.shape = }, {dfduxx.shape = }')
+
+        # 3) Get dfdtheta using vmap
+        params = {k: v.detach() for k, v in self.pde_func.named_parameters()}
+        buffers = {k: v.detach() for k, v in self.pde_func.named_buffers()}
+        # Reshape Us and Xs to shape [N, ...] for vmap to work
+        dUs_flat = [torch.flatten(u.permute(1, 2, 0), start_dim=0, end_dim=1) for u in dUs]
+        Xs_flat = torch.flatten(Xs.permute(1, 2, 0), start_dim=0, end_dim=1)
+
+        def get_output(_params, _buffers, _dU, _X):
+            _dU = [du.unsqueeze(-1).unsqueeze(-1) for du in _dU]        # Function expects Nx, Ny = 1, 1
+            ret = functional_call(self.pde_func, (_params, _buffers), (dUs, _X))
+            return ret[0, 0]
+
+        all_grad_fn = vmap(grad(get_output), in_dims=(None, None, 0, 0), out_dims=0)
+        dfdtheta = all_grad_fn(params, buffers, dUs_flat, Xs_flat)
+
+        return dfdU, dfdtheta
 
 
 class PDE_adjoint(PDEHandler):

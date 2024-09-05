@@ -2,34 +2,35 @@ import torch
 from abc import ABC, abstractmethod
 
 
-class PDEFunc(ABC):
+class PDEFunc(torch.nn.Module, ABC):
     def __init__(self, device='cpu'):
         """ Given u and derivatives, return the PDE residual"""
-        pass
+        super().__init__()
 
-    @abstractmethod
-    def residuals(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor, thetas=None) -> torch.Tensor:
-        pass
+    def residuals(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            u_dus: u, du/dx, d2u/dx2. Shape = [3][Nitem, Nx, Ny].
+            Xs: Grid points. Shape = [2, Nx, Ny]
+
+        f(u, du/dX, d2u/dX2, X, thetas) = 0
+
+        Returns: PDE residual (=0 for exact solution), shape=[Nx, Ny]
+        """
+
+        return self.forward(u_dus, Xs)
+
 
 
 class Poisson(PDEFunc):
     def __init__(self, device='cpu'):
         super().__init__(device=device)
 
-    def residuals(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor, thetas=None):
-        """
-        Args:
-            u_dus: Values of u, du/dx, d2u/dx2
-            Xs: Grid points.
-            thetas: model parameters
+        self.test_param = torch.nn.Parameter(torch.tensor([.0, 1.], device=device))
+        self.to(device)
 
-        f(u, du/dX, d2u/dX2, X, thetas) = 0
 
-        input.shape = [N_dim, Nx, Ny]
-        Returns: PDE residual (=0 for exact solution), shape=[Nx, Ny]
-
-        """
-
+    def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
         u, dudX, d2udX2 = u_dus
 
         x_min, x_max = 0.25, 0.5
@@ -41,4 +42,6 @@ class Poisson(PDEFunc):
         y_masks = (y > y_min) & (y < y_max)
         charge = 100 * (x_masks & y_masks)
 
-        return d2udX2[1] + d2udX2[0] + charge
+
+        resid = d2udX2[1] + d2udX2[0] + charge # + 1 * self.test_param[0] + 0.5 * self.test_param[1]
+        return resid

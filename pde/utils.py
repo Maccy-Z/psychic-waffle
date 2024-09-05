@@ -14,7 +14,9 @@ def show_grid(u: torch.Tensor, title=None):
         raise ValueError("Input must be a 1D or 2D array")
 
     plt.figure()
-    plt.imshow(u.T.cpu().detach(), cmap='viridis', origin='lower')
+    u = u.T.cpu().detach().numpy()
+
+    plt.imshow(u, cmap='viridis', origin='lower')
     plt.colorbar()
     if title is not None:
         plt.title(title)
@@ -42,10 +44,13 @@ def get_split_indices(tensor_size, m):
     return index_pairs
 
 
-if __name__ == "__main__":
+def main():
     # Define the grid dimensions
     nx, ny = 10, 10
 
     # Create a 2D grid of u values (replace this with your actual u grid)
     u = np.random.rand(nx, ny)
     show_grid(u)
+
+if __name__ == "__main__":
+    main()
