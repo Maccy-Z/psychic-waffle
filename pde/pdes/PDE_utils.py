@@ -4,10 +4,10 @@ from torch.func import functional_call, vmap, grad
 import abc
 import math
 
-from discrete_derivative import DerivativeCalc
-from U_grid import UGrid2D, UGrid, USplitGrid
-from X_grid import XGrid
-from PDEs import PDEFunc
+from pde.pdes.discrete_derivative import DerivativeCalc
+from pde.U_grid import UGrid2D, UGrid, USplitGrid
+from pde.X_grid import XGrid
+from .PDEs import PDEFunc
 
 
 class PDEHandler(abc.ABC):
@@ -49,9 +49,7 @@ class PDEForward(PDEHandler):
         dudX, d2udX2 = self.deriv_calc.derivative(us_bc)  # shape = [N, ...]. Derivative removes boundary points.
 
         us_dus = (us, dudX, d2udX2)
-
         residuals = self.pde_func.residuals(us_dus, Xs)
-
         resid_grad = residuals[subgrid.pde_mask]
 
         return resid_grad, resid_grad
@@ -77,6 +75,8 @@ class PDEForward(PDEHandler):
         us_bc, _ = self.u_grid.get_all_us_Xs()  # Shape = [N+2]
         us, Xs = self.u_grid.get_real_us_Xs()  # Shape = [N]
         dudx, d2udx2 = self.deriv_calc.derivative(us_bc)  # Shape = [N]
+        # Mask for boundary points
+        mask = self.u_grid.pde_mask[1:-1, 1:-1]
 
         # 2) Calculate dfdu, dfdu_x, dfdu_xx
         us = us.unsqueeze(0)
@@ -84,7 +84,8 @@ class PDEForward(PDEHandler):
         us.requires_grad_(True), dudx.requires_grad_(True), d2udx2.requires_grad_(True)
         dUs = [us, dudx, d2udx2]
         residuals = self.pde_func.residuals(dUs, Xs=Xs)
-
+        # Mask out boundary points that residuals are not enforced on. Doing here means shapes aren't affected.
+        residuals = residuals[mask]
         residuals.backward(gradient=torch.ones_like(residuals))
 
         dfdu = us.grad
@@ -98,10 +99,9 @@ class PDEForward(PDEHandler):
             dfdux = torch.zeros_like(dudx)
         if dfduxx is None:
             dfduxx = torch.zeros_like(d2udx2)
-
         dfdU = [dfdu, dfdux, dfduxx]        # shape = [N, ...]
-
-        # print(f'{us.shape = }, {dfdu.shape = }, {dfdux.shape = }, {dfduxx.shape = }')
+        # TODO: Assuming dirichlet BC everywhere
+        dfdu[0, ~mask] = 1
 
         # 3) Get dfdtheta using vmap
         params = {k: v.detach() for k, v in self.pde_func.named_parameters()}
@@ -112,11 +112,19 @@ class PDEForward(PDEHandler):
 
         def get_output(_params, _buffers, _dU, _X):
             _dU = [du.unsqueeze(-1).unsqueeze(-1) for du in _dU]        # Function expects Nx, Ny = 1, 1
+
             ret = functional_call(self.pde_func, (_params, _buffers), (dUs, _X))
             return ret[0, 0]
 
         all_grad_fn = vmap(grad(get_output), in_dims=(None, None, 0, 0), out_dims=0)
         dfdtheta = all_grad_fn(params, buffers, dUs_flat, Xs_flat)
+
+        # Reshape to square array and mask off boundary points
+        for name, param in dfdtheta.items():
+            n_params = param.shape[-1]
+            param = param.view([*N, n_params])
+            param = param * mask[..., None]
+            dfdtheta[name] = param
 
         return dfdU, dfdtheta
 

@@ -150,7 +150,7 @@ def main():
         start = time.time()
         result2 = csr_mat_vec(data, col_idx, n_rows, row_indices, b)
         ts.append(time.time() - start)
-    print(f'{100 * np.mean(ts[10:]) :.4g}')
+    print(f'T = {100 * np.mean(ts[10:]) :.4g}')
 
     print(f'All close: {torch.allclose(result1, result2)}')
 

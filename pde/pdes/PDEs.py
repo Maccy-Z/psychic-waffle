@@ -26,7 +26,7 @@ class Poisson(PDEFunc):
     def __init__(self, device='cpu'):
         super().__init__(device=device)
 
-        self.test_param = torch.nn.Parameter(torch.tensor([.0, 1.], device=device))
+        self.test_param = torch.nn.Parameter(torch.tensor([1., 1.], device=device))
         self.to(device)
 
 
@@ -43,5 +43,7 @@ class Poisson(PDEFunc):
         charge = 100 * (x_masks & y_masks)
 
 
-        resid = d2udX2[1] + d2udX2[0] + charge # + 1 * self.test_param[0] + 0.5 * self.test_param[1]
+        resid = d2udX2[0] + 0.5 * d2udX2[1] + 50 * u  + 50# +  0 * charge # + 1 * self.test_param[0] + 0.5 * self.test_param[1]
+        # resid += 10 * self.test_param[0]
+        print(u.shape)
         return resid

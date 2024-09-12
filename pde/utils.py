@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 
-def show_grid(u: torch.Tensor, title=None):
+def show_grid(u: torch.Tensor, title=None, origin="lower"):
     """
     Visualize a 2D grid of values using matplotlib
     """
@@ -16,7 +16,7 @@ def show_grid(u: torch.Tensor, title=None):
     plt.figure()
     u = u.T.cpu().detach().numpy()
 
-    plt.imshow(u, cmap='viridis', origin='lower')
+    plt.imshow(u, cmap='viridis', origin=origin)
     plt.colorbar()
     if title is not None:
         plt.title(title)
