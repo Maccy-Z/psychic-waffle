@@ -43,9 +43,8 @@ class PDEForward(PDEHandler):
 
         us_bc = subgrid.add_nograd_to_us(us_grad)  # Shape = [N+2, ...]. Need all Us to calculate derivatives.
         Xs = subgrid.Xs_pde  # Shape = [N, ...]. Only need Xs for residuals.
-        us = us_bc[1:-1, 1:-1]
+        us = us_bc[1:-1, 1:-1].unsqueeze(0)
 
-        # print(f'{us.shape = }, {Xs.shape = }')
         dudX, d2udX2 = self.deriv_calc.derivative(us_bc)  # shape = [N, ...]. Derivative removes boundary points.
 
         us_dus = (us, dudX, d2udX2)
@@ -78,45 +77,25 @@ class PDEForward(PDEHandler):
         # Mask for boundary points
         mask = self.u_grid.pde_mask[1:-1, 1:-1]
 
-        # 2) Calculate dfdu, dfdu_x, dfdu_xx
+        # 2) Reshape Us for vmap
         us = us.unsqueeze(0)
         Xs = Xs.permute(2, 0, 1)
-        us.requires_grad_(True), dudx.requires_grad_(True), d2udx2.requires_grad_(True)
         dUs = [us, dudx, d2udx2]
-        residuals = self.pde_func.residuals(dUs, Xs=Xs)
-        # Mask out boundary points that residuals are not enforced on. Doing here means shapes aren't affected.
-        residuals = residuals[mask]
-        residuals.backward(gradient=torch.ones_like(residuals))
-
-        dfdu = us.grad
-        dfdux = dudx.grad
-        dfduxx = d2udx2.grad
-
-        # If a function isn't used, the gradient is None. Set to zeros.
-        if dfdu is None:
-            dfdu = torch.zeros_like(us)
-        if dfdux is None:
-            dfdux = torch.zeros_like(dudx)
-        if dfduxx is None:
-            dfduxx = torch.zeros_like(d2udx2)
-        dfdU = [dfdu, dfdux, dfduxx]        # shape = [N, ...]
-        # TODO: Assuming dirichlet BC everywhere
-        dfdu[0, ~mask] = 1
+        dUs_flat = [torch.flatten(u.permute(1, 2, 0), start_dim=0, end_dim=1) for u in dUs]
+        Xs_flat = torch.flatten(Xs.permute(1, 2, 0), start_dim=0, end_dim=1)
 
         # 3) Get dfdtheta using vmap
         params = {k: v.detach() for k, v in self.pde_func.named_parameters()}
         buffers = {k: v.detach() for k, v in self.pde_func.named_buffers()}
-        # Reshape Us and Xs to shape [N, ...] for vmap to work
-        dUs_flat = [torch.flatten(u.permute(1, 2, 0), start_dim=0, end_dim=1) for u in dUs]
-        Xs_flat = torch.flatten(Xs.permute(1, 2, 0), start_dim=0, end_dim=1)
 
         def get_output(_params, _buffers, _dU, _X):
-            _dU = [du.unsqueeze(-1).unsqueeze(-1) for du in _dU]        # Function expects Nx, Ny = 1, 1
-
-            ret = functional_call(self.pde_func, (_params, _buffers), (dUs, _X))
+            _dU = [du.unsqueeze(-1).unsqueeze(-1) for du in _dU]        # pde_func expects [Nitem, Nx, Ny]
+            _X = _X.unsqueeze(-1).unsqueeze(-1)
+            ret = functional_call(self.pde_func, (_params, _buffers), (_dU, _X))
             return ret[0, 0]
 
         all_grad_fn = vmap(grad(get_output), in_dims=(None, None, 0, 0), out_dims=0)
+
         dfdtheta = all_grad_fn(params, buffers, dUs_flat, Xs_flat)
 
         # Reshape to square array and mask off boundary points
@@ -126,7 +105,7 @@ class PDEForward(PDEHandler):
             param = param * mask[..., None]
             dfdtheta[name] = param
 
-        return dfdU, dfdtheta
+        return dfdtheta
 
 
 class PDE_adjoint(PDEHandler):

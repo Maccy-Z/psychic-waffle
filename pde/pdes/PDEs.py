@@ -32,6 +32,8 @@ class Poisson(PDEFunc):
 
     def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
         u, dudX, d2udX2 = u_dus
+        u = u[0]
+        # print(f'{u.shape = }, {d2udX2.shape = }, {Xs.shape = }')
 
         x_min, x_max = 0.25, 0.5
         y_min, y_max = 0.5, 0.6
@@ -43,7 +45,8 @@ class Poisson(PDEFunc):
         charge = 100 * (x_masks & y_masks)
 
 
-        resid = d2udX2[0] + 0.5 * d2udX2[1] + 50 * u  + 50# +  0 * charge # + 1 * self.test_param[0] + 0.5 * self.test_param[1]
+        resid = d2udX2[0] + 0.5 * d2udX2[1] + 50 * u  + 50 * self.test_param[0]# +  0 * charge # + 1 * self.test_param[0] + 0.5 * self.test_param[1]
         # resid += 10 * self.test_param[0]
-        print(u.shape)
+
+        #print(f'{resid.shape = }, ')
         return resid

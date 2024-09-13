@@ -8,7 +8,7 @@ from utils import show_grid
 from pdes.discrete_derivative import DerivativeCalc2D
 from pdes.PDEs import Poisson
 from pdes.PDE_utils import PDEForward
-from solvers.pde_solve import SolverNewtonSplit, SolverNewton
+from solvers.pde_solve import SolverNewton
 
 torch.set_printoptions(linewidth=150, precision=3)
 
@@ -35,29 +35,33 @@ neuman_bc = torch.full(grid_N, float('nan'))
 # plt.imshow(neuman_bc.T)
 # plt.show()
 #
-# exit(5)
 
 # Init PDE classes
 us_grid = UGridOpen2D(Xs_grid, dirichlet_bc=dirichlet_bc, neuman_bc=neuman_bc)
 deriv_calc = DerivativeCalc2D(Xs_grid, order=2)
 pde_fn = Poisson(device=DEVICE)
 pde_handle = PDEForward(us_grid, pde_fn, deriv_calc)
-solver = SolverNewtonSplit(pde_handle, us_grid, solver="iterative", N_iter=2, lr=1)
+solver = SolverNewton(pde_handle, us_grid, solver="iterative", jac_mode="split", N_iter=2, lr=1)
 
 # Solve
 solver.find_pde_root()
 
 us, _ = us_grid.get_real_us_Xs()
 show_grid(us, "Fitted values")
+print()
 
 #
-dfdu, dfdtheta = pde_handle.get_dfs()
+dfdtheta = pde_handle.get_dfs()
 
-torch.save(dfdu, "dfdu.pth")
-jacobian = torch.zeros_like(dfdu[0])
-print()
-print(dfdu[0].shape)
-print(Xs_grid.dx)
+for n, p in dfdtheta.items():
+    print(f"{n}: {p.shape}")
+
+    print(p)
+    print()
+# torch.save(dfdu, "dfdu.pth")
+# jacobian = torch.zeros_like(dfdu[0])
+# print(dfdu[0].shape)
+# print(Xs_grid.dx)
 
 
 
