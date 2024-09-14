@@ -5,7 +5,7 @@ import abc
 import math
 
 from pde.pdes.discrete_derivative import DerivativeCalc
-from pde.U_grid import UGrid2D, UGrid, USplitGrid
+from pde.U_grid import UGrid2D, UGrid, USplitGrid, USubGrid
 from pde.X_grid import XGrid
 from .PDEs import PDEFunc
 
@@ -19,10 +19,10 @@ class PDEHandler(abc.ABC):
     @abc.abstractmethod
     def residuals(self, us_bc: torch.Tensor, extra_args) -> torch.Tensor:
         """
-        PDE function that returns residuals.
-        First parameter is tensor which is used for Jacobian.
-        extra_args contains extra conditioning for PDE.
-        Returns a tuple of identical tensors for jacfwd to calculate jacobian and get value.
+            PDE function that returns residuals.
+            First parameter is tensor which is used for Jacobian.
+            extra_args contains extra conditioning for PDE.
+            Returns a tuple of identical tensors for jacfwd to calculate jacobian and get value.
         """
         pass
 
@@ -35,10 +35,9 @@ class PDEForward(PDEHandler):
         self.u_grid = u_grid
         self.deriv_calc = deriv_calc
 
-    def residuals(self, us_grad, subgrid: USplitGrid):
+    def residuals(self, us_grad, subgrid: USubGrid):
         """
             Returns residuals of equations that require gradients only.
-
         """
 
         us_bc = subgrid.add_nograd_to_us(us_grad)  # Shape = [N+2, ...]. Need all Us to calculate derivatives.

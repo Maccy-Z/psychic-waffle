@@ -40,12 +40,11 @@ class Poisson(PDEFunc):
 
         x, y = Xs
 
-        x_masks = (x > x_min) & (x < x_max)
-        y_masks = (y > y_min) & (y < y_max)
-        charge = 100 * (x_masks & y_masks)
+        # x_masks = (x > x_min) & (x < x_max)
+        # y_masks = (y > y_min) & (y < y_max)
+        # charge = 100 * (x_masks & y_masks)
 
-
-        resid = d2udX2[0] + 0.5 * d2udX2[1] + 50 * u  + 50 * self.test_param[0]# +  0 * charge # + 1 * self.test_param[0] + 0.5 * self.test_param[1]
+        resid = d2udX2[0] + d2udX2[1] + 50 * u  + 50 * self.test_param[0]# +  0 * charge # + 1 * self.test_param[0] + 0.5 * self.test_param[1]
         # resid += 10 * self.test_param[0]
 
         #print(f'{resid.shape = }, ')

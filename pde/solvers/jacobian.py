@@ -4,17 +4,26 @@ from pde.pdes.PDE_utils import PDEHandler
 from pde.utils import get_split_indices
 
 class JacobCalc:
+    """ Used to calculate Jacobian of PDE.
+    """
     def __init__(self, sol_grid: UGrid, pde_func:PDEHandler):
         self.sol_grid = sol_grid
         self.pde_func = pde_func
 
     def jacobian(self):
+        """ Returns Jacobain of function. Return shape: [N_pde, N_us].
+            PDEs are indexed by pde_mask and Us are indexed by us_grad_mask. 2D coordinates are stacked into 1D here.
+            Columns for each function. Row for each u value.
+
+         """
         us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
 
         subgrid = UNormalGrid(self.sol_grid, us_grad_mask, pde_mask)
 
         us_grad = subgrid.get_us_grad()
         jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
+
+
         return jacobian, residuals
 
 
@@ -39,7 +48,7 @@ class SplitJacobCalc:
         jacob_shape = self.jacob_shape
         us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
 
-        # Rectangular blocks of Jacobian between [xmin, xmax] (pde slice) and [ymin, ymax] (us slice)
+        # Rectangular blocks of Jacobian between [xmin, xmax] (pde) and [ymin, ymax] (us)
         jacobian = torch.zeros((jacob_shape, jacob_shape), device=self.device)
         residuals = torch.zeros(jacob_shape, device=self.device)
 

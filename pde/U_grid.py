@@ -239,6 +239,9 @@ class USubGrid:
         us[self.neuman_mask[:, 0], 0] = us[self.neuman_mask[:, 0], 2] + 2 * self.neuman_bc[self.neuman_mask[:, 0], 1] * self.dx
 
     def get_us_grad(self):
+        """
+        Return us that have gradient. In flattened format.
+        """
         return self.us_region[self.us_grad_mask]
 
     def add_nograd_to_us(self, us_grad):
@@ -291,7 +294,7 @@ class USplitGrid(USubGrid):
 class UNormalGrid(USubGrid):
     """ Normal version of subgrid. Effectively placeholder that does nothing. """
 
-    def __init__(self, us_grid: UGridOpen2D, us_grad_mask: torch.Tensor, pde_mask: torch.Tensor):
+    def __init__(self, us_grid: UGrid, us_grad_mask: torch.Tensor, pde_mask: torch.Tensor):
         super().__init__(us_grid.device, us_grid.dx)
         all_us, all_Xs = us_grid.get_all_us_Xs()
 

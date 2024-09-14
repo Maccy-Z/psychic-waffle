@@ -18,9 +18,11 @@ from pde.pdes.PDE_utils import PDEHandler
 from pde.utils import show_grid, get_split_indices
 from pde.solvers.jacobian import SplitJacobCalc, JacobCalc
 
-SolvStr = Literal['sparse', 'dense', 'iterative']
 
-class LinearEquation:
+SolvStr = Literal['sparse', 'dense', 'iterative']
+JacStr = Literal['dense', 'split']
+
+class LinearSolver:
     """ Solve Ax = b for x """
     solver: Callable
 
@@ -39,6 +41,9 @@ class LinearEquation:
             elif mode == "sparse":
                 self.solver = self.cpu_sparse
 
+    def solve(self, A: torch.Tensor, b: torch.Tensor):
+        return self.solver(A, b)
+
     def cuda_iterative(self, A: torch.Tensor, b: torch.Tensor):
         A_cupy = cp.from_dlpack(A)
         b_cupy = cp.from_dlpack(b)
@@ -47,10 +52,8 @@ class LinearEquation:
         A_sparse_cupy = sp.csr_matrix(A_cupy)
 
         # Solve the sparse linear system Ax = b using CuPy
-        x, info = sp_linalg.gmres(A_sparse_cupy, b_cupy, maxiter=250, restart=125, tol=0.)
+        x, info = sp_linalg.gmres(A_sparse_cupy, b_cupy, maxiter=1000, restart=125, tol=0.)
         x = torch.from_dlpack(x)
-
-
         return x
 
     def cuda_sparse(self, A: torch.Tensor, b: torch.Tensor):
@@ -81,8 +84,6 @@ class LinearEquation:
         deltas = torch.linalg.solve(A, b)
         return deltas
 
-    def solve(self, A: torch.Tensor, b: torch.Tensor):
-        return self.solver(A, b)
 
 
 class Solver(ABC):
@@ -98,7 +99,7 @@ class Solver(ABC):
         self.sol_grid = sol_grid
         self.solve_acc = acc
 
-        self.solver = LinearEquation(solver, device)
+        self.solver = LinearSolver(solver, device)
 
         self.device = device
 
@@ -124,7 +125,7 @@ class Solver(ABC):
 
 
 class SolverNewton(Solver):
-    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid, solver: SolvStr, jac_mode: str, N_iter: int, lr=1., acc: float = 1e-4):
+    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid, solver: SolvStr, jac_mode: JacStr, N_iter: int, lr=1., acc: float = 1e-4):
         super().__init__(pde_func, sol_grid, solver, acc, sol_grid.device)
         self.N_iter = N_iter
         self.lr = lr
@@ -133,7 +134,7 @@ class SolverNewton(Solver):
         if jac_mode == "dense":
             self.jac_fn = JacobCalc(sol_grid, pde_func)
         elif jac_mode == "split":
-            self.jac_fn = SplitJacobCalc(sol_grid, pde_func, num_blocks=1)
+            self.jac_fn = SplitJacobCalc(sol_grid, pde_func, num_blocks=4)
         else:
             raise ValueError(f"Invalid jac_mode {jac_mode}. Must be 'dense' or 'split'")
 
@@ -154,8 +155,6 @@ class SolverNewton(Solver):
 
             if self.terminate(residuals, i):
                 print("Converged")
-
-
 
 
 # class SolverNewtonSplit(Solver):
