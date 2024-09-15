@@ -28,7 +28,6 @@ class PDEHandler(abc.ABC):
 
 
 class PDEForward(PDEHandler):
-    us_dus_cache: torch.Tensor
 
     def __init__(self, u_grid: UGrid, pde_func: PDEFunc, deriv_calc: DerivativeCalc):
         super().__init__(pde_func)

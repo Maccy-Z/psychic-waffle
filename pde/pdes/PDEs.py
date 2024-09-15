@@ -26,7 +26,7 @@ class Poisson(PDEFunc):
     def __init__(self, device='cpu'):
         super().__init__(device=device)
 
-        self.test_param = torch.nn.Parameter(torch.tensor([1., 1.], device=device))
+        self.test_param = torch.nn.Parameter(torch.tensor([-.6, 1.], device=device))
         self.to(device)
 
 

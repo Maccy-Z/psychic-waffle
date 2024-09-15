@@ -42,7 +42,8 @@ us_grid = UGridOpen2D(Xs_grid, dirichlet_bc=dirichlet_bc, neuman_bc=neuman_bc)
 deriv_calc = DerivativeCalc2D(Xs_grid, order=2)
 pde_fn = Poisson(device=DEVICE)
 pde_handle = PDEForward(us_grid, pde_fn, deriv_calc)
-solver = SolverNewton(pde_handle, us_grid, solver="iterative", jac_mode="split", N_iter=3, lr=1)
+lin_newton = LinearSolver("iterative", DEVICE, cfg={"maxiter": 1000, "restart": 125, "rtol": 1e-3})
+solver = SolverNewton(pde_handle, us_grid, lin_newton, jac_mode="split", N_iter=3, lr=1)
 
 # show_grid(us_grid.pde_mask, "PDE mask")
 
@@ -52,7 +53,6 @@ solver.find_pde_root()
 us, _ = us_grid.get_real_us_Xs()
 show_grid(us, "Fitted values")
 print()
-
 
 # for n, p in dfdtheta.items():
 #     print(f"{n}: {p.shape}")
@@ -70,7 +70,8 @@ g = us_grad ** 2
 g_u = 2 * us_grad / g.numel() # dgdu hardcoded.
 jac_T = jacobian.T
 
-adjoint_solver = LinearSolver("iterative", DEVICE)
+adj_cfg = {}
+adjoint_solver = LinearSolver("iterative", DEVICE, adj_cfg)
 adjoint = adjoint_solver.solve(jac_T, g_u)
 adj_view = torch.full(pde_mask_.shape, 0., device=DEVICE)     # Shape = [N]
 adj_view[pde_mask_] = adjoint
@@ -78,13 +79,17 @@ show_grid(adj_view * g.numel(), "adjoint")
 
 # Get dfdtheta
 dfdtheta = pde_handle.get_dfs()     # Shape = [N, ..., Nparams]
+
+loss = g.mean()
+print(f'{loss = }')
+# Calculate loss gradeints
 for n, p in dfdtheta.items():
     print(f"{n}: {p.shape}")
 
-    loss = p * adj_view[..., None]
+    dLdp = p * adj_view[..., None]
 
-    loss = torch.sum(loss, dim=(0, 1))
-    print(f'{loss = }')
+    dLdp = torch.sum(dLdp, dim=(0, 1))
+    print(f'{dLdp = }')
 
 
 #     print(p)
