@@ -38,13 +38,13 @@ class NeuralPDE:
         pde_forward = PDEForward(us_grid, pde_fn, deriv_calc)
 
         # Forward solver
-        lin_newton = LinearSolver("iterative", cfg.DEVICE, cfg=fwd_cfg.lin_solve_cfg)
+        fwd_lin_solver = LinearSolver("iterative", cfg.DEVICE, cfg=fwd_cfg.lin_solve_cfg)
         fwd_jacob_calc = get_jac_calc(us_grid, pde_forward, fwd_cfg)
-        newton_solver = SolverNewton(pde_forward, us_grid, lin_newton, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
+        newton_solver = SolverNewton(pde_forward, us_grid, fwd_lin_solver, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
 
         # Adjoint solver
-        adj_jacob_calc = get_jac_calc(us_grid, pde_forward, adj_cfg)
         adj_lin_solver = LinearSolver("iterative", self.DEVICE, adj_cfg.lin_solve_cfg)
+        adj_jacob_calc = get_jac_calc(us_grid, pde_forward, adj_cfg)
         pde_adjoint = PDEAdjoint_tmp(us_grid, pde_fn, deriv_calc, adj_jacob_calc, adj_lin_solver, loss_fn)
 
         self.pde_fn = pde_fn
@@ -62,23 +62,6 @@ class NeuralPDE:
     def adjoint_solve(self):
         """ Solve for adjoint """
 
-        # # Adjoint solves for lambda dgdu = J^T * lambda.
-        # with torch.no_grad():
-        #     jacobian, _ = self.adj_jacob_calc.jacobian()
-        #     jac_T = jacobian.T
-        #
-        # # One adjoint value for each trained u value, including boundary points.
-        # us, grad_mask, pde_mask = self.us_grid.get_us_mask()
-        # pde_mask_ = pde_mask[1:-1, 1:-1]
-        # us_grad = us[grad_mask]
-        #
-        # G = self.loss_fn(us_grad)
-        # G_u = self.loss_fn.gradient()
-        # with Timer(text="Adjoint solve: {:.4f}", logger=logging.info):
-        #     adjoint = self.adj_lin_solver.solve(jac_T, G_u)
-
-        # adj_view = torch.full(pde_mask_.shape, 0., device=self.DEVICE)  # Shape = [N]
-        # adj_view[pde_mask_] = adjoint
         adjoint, loss = self.pde_adjoint.adjoint_solve()
         self.adjoint = adjoint
 
@@ -93,6 +76,8 @@ class NeuralPDE:
 
         # Delete adjoint to stop reuse.
         self.adjoint = None
+
+        return residuals
 
     def get_us_Xs(self):
         us, Xs = self.us_grid.get_real_us_Xs()

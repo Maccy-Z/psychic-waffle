@@ -57,17 +57,37 @@ class PDEAdjoint_tmp:
 
         self.DEVICE = u_grid.device
 
+    def adjoint_solve(self):
+        """ Solve for adjoint.
+            dgdU = J^T * adjoint
+         """
+        with torch.no_grad():
+            jacobian, _ = self.adj_jacob_calc.jacobian()    # Shape = [N_eq, N_us]
+            jac_T = jacobian.T
+
+        # One adjoint value for each trained u value, including boundary points.
+        us, grad_mask, _ = self.us_grid.get_us_mask()
+        us_grad = us[grad_mask]
+
+        loss = self.loss_fn(us_grad)
+        loss_u = self.loss_fn.gradient()
+        with Timer(text="Adjoint solve: {:.4f}", logger=logging.info):
+            adjoint = self.adj_lin_solver.solve(jac_T, loss_u)
+
+        return adjoint, loss
+
     def backpropagate(self, adjoint):
         """
             Computes grads and populates model.parameters.grads
-            adjoint.shape = [N, N]
+            adjoint.shape = [N_us] = [N_PDEs]
         """
+
         # 1) Calculate u_x, u_xx
         us_bc, _ = self.us_grid.get_all_us_Xs()  # Shape = [N+2, N+2]
-        us, Xs = self.us_grid.get_real_us_Xs()  # Shape = [N, N, 2]
+        us, Xs = self.us_grid.get_real_us_Xs()  # Shape = [N, N], [N, N, 2]
         dudx, d2udx2 = self.deriv_calc.derivative(us_bc)  # Shape = [N]
         # Mask for boundary points
-        pde_mask = self.us_grid.pde_mask[1:-1, 1:-1]
+        pde_mask = self.us_grid.pde_mask[1:-1, 1:-1]    # Shape = [N, N]
 
         # 2) Reshape Us for vmap
         us = us[pde_mask].unsqueeze(-1)
@@ -80,29 +100,6 @@ class PDEAdjoint_tmp:
         residuals = self.pde_func(dUs_flat, Xs_flat)
         residuals.backward(- adjoint)
         return residuals
-
-    def adjoint_solve(self):
-        """ Solve for adjoint """
-
-        # Adjoint solves for lambda dgdu = J^T * lambda.
-        with torch.no_grad():
-            jacobian, _ = self.adj_jacob_calc.jacobian()
-            jac_T = jacobian.T
-
-        # One adjoint value for each trained u value, including boundary points.
-        us, grad_mask, pde_mask = self.us_grid.get_us_mask()
-        pde_mask_ = pde_mask[1:-1, 1:-1]
-        us_grad = us[grad_mask]
-
-        loss = self.loss_fn(us_grad)
-        loss_u = self.loss_fn.gradient()
-        with Timer(text="Adjoint solve: {:.4f}", logger=logging.info):
-            adjoint = self.adj_lin_solver.solve(jac_T, loss_u)
-
-        adj_view = torch.full(pde_mask_.shape, 0., device=self.DEVICE)  # Shape = [N]
-        adj_view[pde_mask_] = adjoint
-
-        return adjoint, loss
 
 
 class Loss_fn:
