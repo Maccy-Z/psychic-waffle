@@ -1,9 +1,9 @@
 import torch
 from pde.U_grid import UGrid, USplitGrid, UNormalGrid
-from pde.pdes.PDE_utils import PDEHandler
+from pde.pdes.PDE_utils import PDEForward
 from pde.utils import get_split_indices
 
-def get_jac_calc(us_grid: UGrid, pde_forward: PDEHandler, cfg):
+def get_jac_calc(us_grid: UGrid, pde_forward: PDEForward, cfg):
     if cfg.jac_mode == "dense":
         jacob_calc = JacobCalc(us_grid, pde_forward)
     elif cfg.jac_mode == "split":
@@ -18,7 +18,7 @@ class JacobCalc:
     """
         Calculate Jacobian of PDE.
     """
-    def __init__(self, sol_grid: UGrid, pde_func:PDEHandler):
+    def __init__(self, sol_grid: UGrid, pde_func:PDEForward):
         self.sol_grid = sol_grid
         self.pde_func = pde_func
 
@@ -44,7 +44,7 @@ class SplitJacobCalc(JacobCalc):
     """
         Compute Jacobian in split blocks for efficiency.
     """
-    def __init__(self, sol_grid: UGrid, pde_func:PDEHandler, num_blocks: int,):
+    def __init__(self, sol_grid: UGrid, pde_func:PDEForward, num_blocks: int,):
         self.sol_grid = sol_grid
         self.pde_func = pde_func
         self.device = sol_grid.device

@@ -5,12 +5,12 @@ class FwdConfig:
     # Forward linear solver settings
     maxiter: int = 500
     restart: int = 125
-    rtol: float = 1e-3
+    rtol: float = 1e-4
     lin_solve_cfg: dict = None
 
     # Jacobian mode
     num_blocks: int = 4
-    jac_mode: str = "split"
+    jac_mode: str = "dense"
 
     # Forward PDE solver settings
     N_iter: int = 3
@@ -24,12 +24,12 @@ class FwdConfig:
 class AdjointConfig:
     # Jacobian mode
     num_blocks: int = 4
-    jac_mode: str = "split"
+    jac_mode: str = "dense"
 
     # Linear solver settings
-    maxiter: int = 2000
+    maxiter: int = 1000
     restart: int = 125
-    rtol: float = 0.
+    rtol: float = 1e-4
     lin_solve_cfg: dict = None
 
     def __post_init__(self):

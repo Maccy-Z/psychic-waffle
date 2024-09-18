@@ -67,6 +67,7 @@ class XGrid2D(XGrid):
         c_print(f'Grid Spacing: {self.dx:.5g}, grid Shape: {self.N.tolist()}.', 'green')
 
 
+
 def main():
     Xs = XGrid2D(0, 1, torch.tensor([26, 51]))
 

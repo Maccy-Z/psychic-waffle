@@ -1,13 +1,13 @@
 import torch
 from cprint import c_print
+from codetiming import Timer
+import logging
 
-from X_grid import XGrid2D
 from U_grid import UGridOpen2D
 from pde.solvers.jacobian import get_jac_calc
-from utils import show_grid
 from pdes.discrete_derivative import DerivativeCalc2D
 from pdes.PDEs import PDEFunc
-from pdes.PDE_utils import PDEForward
+from pdes.PDE_utils import PDEForward, PDEAdjoint_tmp
 from solvers.linear_solvers import SolverNewton, LinearSolver
 from config import Config
 from pde.loss import MSELoss, Loss
@@ -15,7 +15,7 @@ from pde.loss import MSELoss, Loss
 torch.set_printoptions(linewidth=150, precision=3)
 
 
-class PDEAdjoint:
+class NeuralPDE:
     us_grid: UGridOpen2D
     loss_fn: Loss
     adjoint: torch.Tensor
@@ -40,50 +40,48 @@ class PDEAdjoint:
         # Forward solver
         lin_newton = LinearSolver("iterative", cfg.DEVICE, cfg=fwd_cfg.lin_solve_cfg)
         fwd_jacob_calc = get_jac_calc(us_grid, pde_forward, fwd_cfg)
-        solver = SolverNewton(pde_forward, us_grid, lin_newton, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
+        newton_solver = SolverNewton(pde_forward, us_grid, lin_newton, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
 
         # Adjoint solver
         adj_jacob_calc = get_jac_calc(us_grid, pde_forward, adj_cfg)
-        adjoint_solver = LinearSolver("iterative", self.DEVICE, adj_cfg.lin_solve_cfg)
+        adj_lin_solver = LinearSolver("iterative", self.DEVICE, adj_cfg.lin_solve_cfg)
+        pde_adjoint = PDEAdjoint_tmp(us_grid, pde_fn, deriv_calc, adj_jacob_calc, adj_lin_solver, loss_fn)
 
         self.pde_fn = pde_fn
         self.us_grid = us_grid
-        self.pde_forward = pde_forward
-        self.fwd_solver = solver
-        self.adj_jacob_calc = adj_jacob_calc
-        self.adjoint_solver = adjoint_solver
+        self.newton_solver = newton_solver
+        self.pde_adjoint = pde_adjoint
 
     def forward_solve(self):
         """ Solve PDE forward problem. """
 
-        self.fwd_solver.find_pde_root()
+        self.newton_solver.find_pde_root()
         us, _ = self.us_grid.get_real_us_Xs()
-        show_grid(us, "Fitted values")
+        # show_grid(us, "Fitted values")
 
     def adjoint_solve(self):
         """ Solve for adjoint """
 
-        # Adjoint solves for lambda dgdu = J^T * lambda.
-        with torch.no_grad():
-            jacobian, _ = self.adj_jacob_calc.jacobian()
-            jac_T = jacobian.T
+        # # Adjoint solves for lambda dgdu = J^T * lambda.
+        # with torch.no_grad():
+        #     jacobian, _ = self.adj_jacob_calc.jacobian()
+        #     jac_T = jacobian.T
+        #
+        # # One adjoint value for each trained u value, including boundary points.
+        # us, grad_mask, pde_mask = self.us_grid.get_us_mask()
+        # pde_mask_ = pde_mask[1:-1, 1:-1]
+        # us_grad = us[grad_mask]
+        #
+        # G = self.loss_fn(us_grad)
+        # G_u = self.loss_fn.gradient()
+        # with Timer(text="Adjoint solve: {:.4f}", logger=logging.info):
+        #     adjoint = self.adj_lin_solver.solve(jac_T, G_u)
 
-        # One adjoint value for each trained u value, including boundary points.
-        us, grad_mask, pde_mask = self.us_grid.get_us_mask()
-        pde_mask_ = pde_mask[1:-1, 1:-1]
-        us_grad = us[grad_mask]
-        G = self.loss_fn(us_grad)
-        G_u = self.loss_fn.gradient()
+        # adj_view = torch.full(pde_mask_.shape, 0., device=self.DEVICE)  # Shape = [N]
+        # adj_view[pde_mask_] = adjoint
+        adjoint, loss = self.pde_adjoint.adjoint_solve()
+        self.adjoint = adjoint
 
-        adjoint = self.adjoint_solver.solve(jac_T, G_u)
-        adj_view = torch.full(pde_mask_.shape, 0., device=self.DEVICE)  # Shape = [N]
-        adj_view[pde_mask_] = adjoint
-        # show_grid(adj_view, "adjoint")
-
-        self.adjoint = adj_view
-
-        loss = G.mean()
-        print()
         c_print(f'loss: {loss.item():.4g}', "bright_magenta")
         return loss
 
@@ -91,20 +89,14 @@ class PDEAdjoint:
         """ Once adjoint is calculated, backpropagate through PDE to get gradients.
             dL/dP = - adjoint * df/dP
          """
+        residuals = self.pde_adjoint.backpropagate(self.adjoint)  # Shape = [N, ..., Nparams]
 
-        dfdps = self.pde_forward.get_dfs()  # Shape = [N, ..., Nparams]
-
-        dLdps = {}
-        for n, dfdp in dfdps.items():
-            dLdp = dfdp * self.adjoint[..., None]
-            dLdp = - torch.sum(dLdp, dim=(0, 1))
-            dLdps[n] = dLdp
-
-        for n, p in self.pde_fn.named_parameters():
-            p.grad = dLdps[n]
-
-        # Delete adjoint
+        # Delete adjoint to stop reuse.
         self.adjoint = None
+
+    def get_us_Xs(self):
+        us, Xs = self.us_grid.get_real_us_Xs()
+        return us, Xs
 
 
 def main():
@@ -118,7 +110,7 @@ def main():
     us_base = torch.full((N_us_grad,), 0., device=cfg.DEVICE)
     loss_fn = MSELoss(us_base)
 
-    pde_adj = PDEAdjoint(pde_fn, loss_fn, cfg)
+    pde_adj = NeuralPDE(pde_fn, loss_fn, cfg)
 
     pde_adj.forward_solve()
     pde_adj.adjoint_solve()

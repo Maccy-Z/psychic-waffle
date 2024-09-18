@@ -278,7 +278,7 @@ class USplitGrid(USubGrid):
         all_us, all_Xs = us_grid.get_all_us_Xs()
         self.us_region = all_us[region_mask]
         self.us_pde = all_us[self.inward_mask]
-        self.Xs_pde = all_Xs[self.inward_mask].permute(2, 0, 1)
+        self.Xs_pde = all_Xs[self.inward_mask] # .permute(2, 0, 1)
 
         # Boundary conditions of region
         # Dirichlet is already set, neuman needs to be dynamically set
@@ -301,7 +301,7 @@ class UNormalGrid(USubGrid):
         self.pde_mask = pde_mask[1:-1, 1:-1]
 
         self.us_region = all_us
-        self.Xs_pde = all_Xs[1:-1, 1:-1].permute(2, 0, 1)
+        self.Xs_pde = all_Xs[1:-1, 1:-1] # .permute(2, 0, 1)
 
         self.neuman_mask = us_grid.neuman_mask
         self.neuman_bc = us_grid.neuman_bc

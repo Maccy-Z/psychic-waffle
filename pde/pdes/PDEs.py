@@ -38,12 +38,12 @@ class PDEFunc(torch.nn.Module, ABC):
     def residuals(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            u_dus: u, du/dx, d2u/dx2. Shape = [3][Nitem, Nx, Ny].
-            Xs: Grid points. Shape = [2, Nx, Ny]
+            u_dus: u, du/dx, d2u/dx2. Shape = [3][*BS (~Nx * Ny), Nitem].
+            Xs: Grid points. Shape = [*BS (~Nx * Ny), 2]
 
         f(u, du/dX, d2u/dX2, X, thetas) = 0
 
-        Returns: PDE residual (=0 for exact solution), shape=[Nx, Ny]
+        Returns: PDE residual (=0 for exact solution), shape=[*BS]
         """
 
         return self.forward(u_dus, Xs)
@@ -59,23 +59,24 @@ class Poisson(PDEFunc):
 
     def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
         u, dudX, d2udX2 = u_dus
-        u = u[0]
+        u = u[..., 0]
 
-        resid = d2udX2[0] + d2udX2[1] + 5 * u  + 5 * self.test_param[0]
+        resid = d2udX2[..., 0] + d2udX2[..., 1] + 5 * u  + 5 * self.test_param[0]
         return resid
 
 class LearnedFunc(PDEFunc):
     def __init__(self, cfg, device='cpu'):
         super().__init__(cfg=cfg, device=device)
 
-        self.test_param = torch.nn.Parameter(torch.tensor([0.35, 0.18, 0.25, 1.7], device=device))
+        self.test_param = torch.nn.Parameter(torch.tensor([1.3, 1., 4., 4.], device=device))
         self.to(device)
 
     def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
+
         u, dudX, d2udX2 = u_dus
-        u = u[0]
+        u = u[..., 0]
 
         p1, p2, p3, p4 = self.test_param
-        resid = p1 * d2udX2[0] + p2 * d2udX2[1] + p3 * u + p4
+        resid = p1 * d2udX2[..., 0]  + p2 * d2udX2[..., 1] + p3 * u + p4
 
         return resid

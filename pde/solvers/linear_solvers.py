@@ -1,11 +1,8 @@
 import torch
-from matplotlib import pyplot as plt
-import math
 import scipy.sparse.linalg as linalg
 from codetiming import Timer
+import logging
 
-from abc import ABC, abstractmethod
-import time
 import cupy as cp
 import cupyx.scipy.sparse as sp
 import cupyx.scipy.sparse.linalg as sp_linalg
@@ -14,8 +11,7 @@ from typing import Literal, Callable
 
 from pde.config import FwdConfig
 from pde.U_grid import UGrid
-from pde.X_grid import XGrid
-from pde.pdes.PDE_utils import PDEHandler
+from pde.pdes.PDE_utils import PDEForward
 from pde.solvers.jacobian import JacobCalc
 from pde.solvers.gmres import gmres
 
@@ -55,7 +51,6 @@ class LinearSolver:
         # Solve the sparse linear system Ax = b using CuPy
         default_args = {'maxiter': 1000, 'restart': 125, 'rtol': 1e-3}
         x, info = gmres(A_sparse_cupy, b_cupy, **{**default_args, **self.cfg})
-        # print(info)
         x = torch.from_dlpack(x)
         return x
 
@@ -89,7 +84,7 @@ class LinearSolver:
 
 
 class SolverNewton:
-    def __init__(self, pde_func: PDEHandler, sol_grid: UGrid, lin_solver: LinearSolver, jac_calc: JacobCalc, cfg: FwdConfig):
+    def __init__(self, pde_func: PDEForward, sol_grid: UGrid, lin_solver: LinearSolver, jac_calc: JacobCalc, cfg: FwdConfig):
         self.pde_func = pde_func
         self.sol_grid = sol_grid
         self.lin_solver = lin_solver
@@ -111,21 +106,17 @@ class SolverNewton:
         :param extra: Additional conditioning for the PDE
         """
         for i in range(self.N_iter):
-            print()
-
-            with Timer(text="Time to calculate jacobian: : {:.4f}"):
+            with Timer(text="Time to calculate jacobian: : {:.4f}", logger=logging.debug):
                 jacobian, residuals = self.jac_calc.jacobian()
 
-            with Timer(text="Time to solve: : {:.4f}"):
-                deltas = self.lin_solver.solve(jacobian, residuals) # self.solve_linear(jacobian, residuals)
+            with Timer(text="Time to solve: : {:.4f}", logger=logging.debug):
+                deltas = self.lin_solver.solve(jacobian, residuals)
 
             self.sol_grid.update_grid(deltas)
 
-            if self.terminate(residuals, i):
-                print("Converged")
+            logging.debug(f'Residual: {torch.mean(torch.abs(residuals)):.3g}, iteration {i}')
+            if torch.mean(torch.abs(residuals)) < self.solve_acc:
+                logging.info(f"Newton solver converged early at iteration {i+1}")
+                break
 
-    def terminate(self, residuals, i):
-        c_print(f'Residual: {torch.mean(torch.abs(residuals)):.3g}, iteration {i}', color='cyan')
-
-        return torch.mean(torch.abs(residuals)) < self.solve_acc
 

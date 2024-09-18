@@ -193,7 +193,7 @@ def gmres(A, b, x0=None, rtol=1e-5, restart=None, maxiter=None, M=None, atol=Non
         x += V @ y
         iters += restart
 
-    info = {'completed': (r_norm <= atol), 'iters': iters, 'resid_norm': r_norm, 'acc': r_norm/b_norm}
+    info = {'completed': (r_norm <= atol), 'iters': iters, 'resid_norm': r_norm, 'frac_acc': r_norm/b_norm}
 
     return mx, info
 

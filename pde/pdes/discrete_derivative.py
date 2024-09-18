@@ -111,7 +111,7 @@ class DerivativeCalc2D(DerivativeCalc):
         """
             Calculate central finite difference derivatives
             u.shape = [Nx + boundary, Ny + boundary]
-            Return shape: [2, Nx, Ny]
+            Return shape: [Nx, Ny, 2]
         """
 
         u = u.view(1, *u.shape)  # Shape: [1, Nx, Ny]
@@ -123,28 +123,10 @@ class DerivativeCalc2D(DerivativeCalc):
         d2udx2 = F.conv2d(u, self.d2udx_kern, padding=0, stride=1)[0, :, self.extra_points:-self.extra_points]
         d2udy2 = F.conv2d(u, self.d2udy_kern, padding=0, stride=1)[0, self.extra_points:-self.extra_points, :]
 
-        dudX = torch.stack([dudx, dudy], dim=0)
-        d2udX2 = torch.stack([d2udx2, d2udy2], dim=0)
+        dudX = torch.stack([dudx, dudy], dim=-1)
+        d2udX2 = torch.stack([d2udx2, d2udy2], dim=-1)
 
         return dudX, d2udX2
-
-
-def main1D():
-    from U_grid import UGrid1D, UGridClosed1D
-    from X_grid import XGrid
-
-    # Parameters
-    Xmin, Xmax = 0, 1  # 2 * math.pi
-    N = 100
-    X_grid = XGrid(Xmin, Xmax, N)
-
-    u_grid = UGrid1D(X_grid, dirichlet_bc={'x0_lower': 0, 'x0_upper': 1})
-    a_grid = UGridClosed(X_grid, dirichlet_bc={'x0_lower': 0, 'x0_upper': 0}, neuman_bc={'x0_lower': 0, 'x0_upper': 2})
-
-    xs = X_grid.xs
-    y = torch.sin(xs)
-    print(a_grid.get_with_bc())
-    print(a_grid.get_with_bc().shape)
 
 
 def main2D():

@@ -3,6 +3,7 @@ import numpy as np
 import torch
 
 
+
 def show_grid(u: torch.Tensor, title=None, origin="lower"):
     """
     Visualize a 2D grid of values using matplotlib
@@ -44,13 +45,7 @@ def get_split_indices(tensor_size, m):
     return index_pairs
 
 
-def main():
-    # Define the grid dimensions
-    nx, ny = 10, 10
-
-    # Create a 2D grid of u values (replace this with your actual u grid)
-    u = np.random.rand(nx, ny)
-    show_grid(u)
-
-if __name__ == "__main__":
-    main()
+def setup_logging():
+    import logging
+    import sys
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='\033[31m%(levelname)s: \033[33m%(message)s \033[0m')
