@@ -3,12 +3,26 @@ from pde.U_grid import UGrid, USplitGrid, UNormalGrid
 from pde.pdes.PDE_utils import PDEHandler
 from pde.utils import get_split_indices
 
+def get_jac_calc(us_grid: UGrid, pde_forward: PDEHandler, cfg):
+    if cfg.jac_mode == "dense":
+        jacob_calc = JacobCalc(us_grid, pde_forward)
+    elif cfg.jac_mode == "split":
+        jacob_calc = SplitJacobCalc(us_grid, pde_forward, num_blocks=cfg.num_blocks)
+    else:
+        raise ValueError(f"Invalid jac_mode {cfg.jac_mode = }. Must be 'dense' or 'split'")
+
+    return jacob_calc
+
+
 class JacobCalc:
-    """ Used to calculate Jacobian of PDE.
+    """
+        Calculate Jacobian of PDE.
     """
     def __init__(self, sol_grid: UGrid, pde_func:PDEHandler):
         self.sol_grid = sol_grid
         self.pde_func = pde_func
+
+        self.device = sol_grid.device
 
     def jacobian(self):
         """ Returns Jacobain of function. Return shape: [N_pde, N_us].
@@ -27,14 +41,14 @@ class JacobCalc:
         return jacobian, residuals
 
 
-
-class SplitJacobCalc:
-    """ Compute Jacobian in split blocks for efficiency. """
+class SplitJacobCalc(JacobCalc):
+    """
+        Compute Jacobian in split blocks for efficiency.
+    """
     def __init__(self, sol_grid: UGrid, pde_func:PDEHandler, num_blocks: int,):
-        self.device = sol_grid.device
-
         self.sol_grid = sol_grid
         self.pde_func = pde_func
+        self.device = sol_grid.device
 
         # Sparsity pattern of Jacobian and splitting. Always fixed
         self.jacob_shape = self.sol_grid.N_us_train.item()  # == len(torch.nonzero(us_grad_mask))
@@ -93,46 +107,45 @@ class SplitJacobCalc:
 
         return jacobian, residuals
 
-
-class SparseJacobianBuilder:
-    def __init__(self, shape):
-        """
-        Initialize the SparseJacobianBuilder.
-
-        :param shape: Tuple indicating the shape of the Jacobian tensor (e.g., (rows, cols)).
-        """
-        self.shape = shape
-        self.indices = []
-        self.values = []
-
-    def add_block(self, pde_slice, us_slice, jacob_block):
-        """
-        Add a block to the Jacobian tensor.
-
-        :param pde_slice: A slice object indicating the rows for the block.
-        :param us_slice: A slice object indicating the columns for the block.
-        :param jacob_block: A tensor containing the block values to be added.
-        """
-        # Calculate the indices for the block
-        block_indices = torch.cartesian_prod(
-            torch.arange(pde_slice.start, pde_slice.stop, device=jacob_block.device),
-            torch.arange(us_slice.start, us_slice.stop, device=jacob_block.device)
-        )
-
-        # Append indices and values
-        self.indices.append(block_indices.t())
-        self.values.append(jacob_block.flatten())
-
-    def build_sparse_tensor(self):
-        """
-        Finalize and retrieve the full sparse Jacobian tensor.
-
-        :return: A sparse COO tensor representing the Jacobian.
-        """
-
-        # Concatenate all indices and values
-        indices = torch.cat(self.indices, dim=1)
-        values = torch.cat(self.values)
-
-        # Create and return the sparse tensor
-        return torch.sparse_coo_tensor(indices, values, self.shape).to_sparse_csr()
+# class SparseJacobianBuilder:
+#     def __init__(self, shape):
+#         """
+#         Initialize the SparseJacobianBuilder.
+#
+#         :param shape: Tuple indicating the shape of the Jacobian tensor (e.g., (rows, cols)).
+#         """
+#         self.shape = shape
+#         self.indices = []
+#         self.values = []
+#
+#     def add_block(self, pde_slice, us_slice, jacob_block):
+#         """
+#         Add a block to the Jacobian tensor.
+#
+#         :param pde_slice: A slice object indicating the rows for the block.
+#         :param us_slice: A slice object indicating the columns for the block.
+#         :param jacob_block: A tensor containing the block values to be added.
+#         """
+#         # Calculate the indices for the block
+#         block_indices = torch.cartesian_prod(
+#             torch.arange(pde_slice.start, pde_slice.stop, device=jacob_block.device),
+#             torch.arange(us_slice.start, us_slice.stop, device=jacob_block.device)
+#         )
+#
+#         # Append indices and values
+#         self.indices.append(block_indices.t())
+#         self.values.append(jacob_block.flatten())
+#
+#     def build_sparse_tensor(self):
+#         """
+#         Finalize and retrieve the full sparse Jacobian tensor.
+#
+#         :return: A sparse COO tensor representing the Jacobian.
+#         """
+#
+#         # Concatenate all indices and values
+#         indices = torch.cat(self.indices, dim=1)
+#         values = torch.cat(self.values)
+#
+#         # Create and return the sparse tensor
+#         return torch.sparse_coo_tensor(indices, values, self.shape).to_sparse_csr()

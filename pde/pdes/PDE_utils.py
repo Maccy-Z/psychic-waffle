@@ -106,38 +106,38 @@ class PDEForward(PDEHandler):
         return dfdtheta
 
 
-class PDE_adjoint(PDEHandler):
-    def __init__(self, u_grid: UGrid, a_grid: UGrid, pde_func: PDEFunc, deriv_calc: DerivativeCalc):
-        self.u_grid = u_grid
-        self.a_grid = a_grid
-        self.deriv_calc = deriv_calc
-
-    def residuals(self, as_bc: torch.Tensor, Lu_dfdU):
-        """
-        Solve adjoint equation for a
-        Requires dfdU = [dF/du, dF/du_x, dF/du_xx]
-        Returns adjoint_PDE(a) = a F_u - (a F_u_x)_x + (a F_u_xx)_xx - L_u
-        """
-
-        Lu, dfdU = Lu_dfdU  # Shape = [N-2], [3, N]
-
-        a = self.a_grid.remove_bc(as_bc)  # Shape = [N]
-
-        a_dfdU = a * dfdU  # Shape = [3, N]
-        af_u = a_dfdU[0]  # Shape = [N]
-        af_u_x = a_dfdU[1]  # Shape = [N]
-        af_u_xx = a_dfdU[2]  # Shape = [N]
-
-        daf_u_x_dx, _ = self.derivative_calculator.derivative_boundary(af_u_x)  # Shape = [N]
-        _, d2af_u_xx_dx2 = self.derivative_calculator.derivative_boundary(af_u_xx)  # Shape = [N]
-
-        adjoint_resid = af_u - daf_u_x_dx + d2af_u_xx_dx2
-
-        # Remove first and last term on boundary since equations are overdetermined
-        adjoint_resid = adjoint_resid[1:-1]
-
-        adjoint_resid = adjoint_resid + Lu
-        return adjoint_resid, adjoint_resid
+# class PDE_adjoint(PDEHandler):
+#     def __init__(self, u_grid: UGrid, a_grid: UGrid, pde_func: PDEFunc, deriv_calc: DerivativeCalc):
+#         self.u_grid = u_grid
+#         self.a_grid = a_grid
+#         self.deriv_calc = deriv_calc
+#
+#     def residuals(self, as_bc: torch.Tensor, Lu_dfdU):
+#         """
+#         Solve adjoint equation for a
+#         Requires dfdU = [dF/du, dF/du_x, dF/du_xx]
+#         Returns adjoint_PDE(a) = a F_u - (a F_u_x)_x + (a F_u_xx)_xx - L_u
+#         """
+#
+#         Lu, dfdU = Lu_dfdU  # Shape = [N-2], [3, N]
+#
+#         a = self.a_grid.remove_bc(as_bc)  # Shape = [N]
+#
+#         a_dfdU = a * dfdU  # Shape = [3, N]
+#         af_u = a_dfdU[0]  # Shape = [N]
+#         af_u_x = a_dfdU[1]  # Shape = [N]
+#         af_u_xx = a_dfdU[2]  # Shape = [N]
+#
+#         daf_u_x_dx, _ = self.derivative_calculator.derivative_boundary(af_u_x)  # Shape = [N]
+#         _, d2af_u_xx_dx2 = self.derivative_calculator.derivative_boundary(af_u_xx)  # Shape = [N]
+#
+#         adjoint_resid = af_u - daf_u_x_dx + d2af_u_xx_dx2
+#
+#         # Remove first and last term on boundary since equations are overdetermined
+#         adjoint_resid = adjoint_resid[1:-1]
+#
+#         adjoint_resid = adjoint_resid + Lu
+#         return adjoint_resid, adjoint_resid
 
 
 class Loss_fn:

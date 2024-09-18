@@ -1,7 +1,11 @@
-def test_fn(a, b, c):
-    print(f'{a = }, {b = }, {c = }')
+from math import pi
 
+d = 2e30 * 236957
 
-default_args = {'a': 1, 'b': 2, 'c': 3}
-update_dict = {'c': 5, 'a': 6}
-test_fn(**{**default_args, **update_dict})
+V = 4/3 * pi * 700_000_000**3
+
+density = d / V
+
+print(f'{density = }')
+print(d)
+

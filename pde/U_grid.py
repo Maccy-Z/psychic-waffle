@@ -133,13 +133,12 @@ class UGridOpen2D(UGrid2D):
 
         n_us = (self.N + 2).tolist()
         self.us = torch.zeros(n_us, dtype=torch.float32).to(self.device)
-        # self.us = torch.zeros(n_us).to(self.device)  # Shape: [N + 2, ...]
 
         # Mask of Dirichlet boundary conditions. Extended to include boundary points
         dirichlet_bc = torch.full_like(self.us, float("nan"))
         dirichlet_bc[1:-1, 1:-1] = self.dirichlet_bc
         self.dirichlet_bc = dirichlet_bc
-        self.dirichlet_mask = ~torch.isnan(self.dirichlet_bc)
+        self.dirichlet_mask = ~torch.isnan(dirichlet_bc)
 
         # Mask of Neuman boundary conditions. Extended to include boundary points
         neuman_bc = torch.full_like(self.us, float("nan"))
@@ -147,13 +146,13 @@ class UGridOpen2D(UGrid2D):
         self.neuman_bc = neuman_bc
         self.neuman_mask = torch.zeros_like(self.us).to(torch.bool)
         # Left
-        self.neuman_mask[0] = ~torch.isnan(self.neuman_bc[1, :])
+        self.neuman_mask[0] = ~torch.isnan(neuman_bc[1, :])
         # Right
-        self.neuman_mask[-1] = ~torch.isnan(self.neuman_bc[-2, :])
+        self.neuman_mask[-1] = ~torch.isnan(neuman_bc[-2, :])
         # Top
-        self.neuman_mask[:, -1] = ~torch.isnan(self.neuman_bc[:, -2])
+        self.neuman_mask[:, -1] = ~torch.isnan(neuman_bc[:, -2])
         # Bottom
-        self.neuman_mask[:, 0] = ~torch.isnan(self.neuman_bc[:, 1])
+        self.neuman_mask[:, 0] = ~torch.isnan(neuman_bc[:, 1])
 
         # Select which boundary equations are needed to enforce PDE at to save computation
         self.grad_mask = torch.zeros_like(self.us).to(torch.bool)
@@ -262,7 +261,7 @@ class USplitGrid(USubGrid):
         Handles masking regions of grid to solve PDE.
     """
 
-    def __init__(self, us_grid: UGridOpen2D, region_mask: tuple[slice, ...], us_grad_mask: torch.Tensor, pde_mask: torch.Tensor):
+    def __init__(self, us_grid: UGrid, region_mask: tuple[slice, ...], us_grad_mask: torch.Tensor, pde_mask: torch.Tensor):
         """ region_mask: Region of grid to calculate PDE in.
             us_grad_mask: Mask of which us have gradient, over full grid. Shape = [N+2, ...]
             pde_mask: Mask of which PDEs are used to fit us, over full grid. Shape = [N+2, ...]
