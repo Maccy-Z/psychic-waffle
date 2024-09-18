@@ -18,16 +18,17 @@ class PDEFunc(torch.nn.Module, ABC):
 
         # Dirichlet BC
         dirichlet_bc = torch.full(grid_N, float('nan'))
-        dirichlet_bc[-1, :] = 1
+        dirichlet_bc[-1, :] = 0.
         # dirichlet_bc[0, :] = 0
-        dirichlet_bc[:, 0] = torch.arange(0, grid_N[0]) / (grid_N[0]-1)
-        dirichlet_bc[:, -1] = torch.arange(0, grid_N[0]) / (grid_N[0]-1)
+        dirichlet_bc[:, 0] = 0.#torch.arange(0, grid_N[0]) / (grid_N[0]-1)
+        dirichlet_bc[:, -1] = 0.# torch.arange(0, grid_N[0]) / (grid_N[0]-1)
         self.dirichlet_bc = dirichlet_bc
 
         # Neuman BC
         neuman_bc = torch.full(grid_N, float('nan'))
-        neuman_bc[0, 1:-1] = 1.
+        neuman_bc[0, 1:-1] = 0.
         self.neuman_bc = neuman_bc
+
 
     def plot_bc(self):
         show_grid(self.dirichlet_bc, "Dirichlet BC")
@@ -48,31 +49,32 @@ class PDEFunc(torch.nn.Module, ABC):
         return self.forward(u_dus, Xs)
 
 
-
 class Poisson(PDEFunc):
     def __init__(self, cfg: Config, device='cpu'):
         super().__init__(cfg=cfg, device=device)
 
-        self.test_param = torch.nn.Parameter(torch.tensor([-1, 1.], device=device))
+        self.test_param = torch.nn.Parameter(torch.tensor([1, 1.], device=device))
         self.to(device)
 
 
     def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
         u, dudX, d2udX2 = u_dus
         u = u[0]
-        # print(f'{u.shape = }, {d2udX2.shape = }, {Xs.shape = }')
 
-        x_min, x_max = 0.25, 0.5
-        y_min, y_max = 0.5, 0.6
+        resid = d2udX2[0] + d2udX2[1] + 5 * u  + 5 * self.test_param[0]
+        return resid
 
-        x, y = Xs
+class LearnedFunc(PDEFunc):
+    def __init__(self, cfg, device='cpu'):
+        super().__init__(cfg=cfg, device=device)
 
-        # x_masks = (x > x_min) & (x < x_max)
-        # y_masks = (y > y_min) & (y < y_max)
-        # charge = 100 * (x_masks & y_masks)
+        self.test_param = torch.nn.Parameter(torch.tensor([0.35, 0.18, 0.25, 1.7], device=device))
+        self.to(device)
 
-        resid = d2udX2[0] + d2udX2[1] + 50 * u  + 50 * self.test_param[0]# +  0 * charge # + 1 * self.test_param[0] + 0.5 * self.test_param[1]
-        # resid += 10 * self.test_param[0]
+    def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
+        u, dudX, d2udX2 = u_dus
+        u = u[0]
 
-        #print(f'{resid.shape = }, ')
+        p1, p2, p3, p4 = self.test_param
+        resid = p1 * d2udX2[0] + p2 * d2udX2[1] + p3 * u + p4
         return resid

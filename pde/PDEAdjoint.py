@@ -1,11 +1,9 @@
 import torch
-import time
-from matplotlib import pyplot as plt
 from cprint import c_print
 
 from X_grid import XGrid2D
 from U_grid import UGridOpen2D
-from pde.solvers.jacobian import JacobCalc, get_jac_calc
+from pde.solvers.jacobian import get_jac_calc
 from utils import show_grid
 from pdes.discrete_derivative import DerivativeCalc2D
 from pdes.PDEs import PDEFunc
@@ -18,12 +16,14 @@ torch.set_printoptions(linewidth=150, precision=3)
 
 
 class PDEAdjoint:
+    us_grid: UGridOpen2D
     loss_fn: Loss
     adjoint: torch.Tensor
 
-    def __init__(self, pde_fn: PDEFunc, cfg: Config):
+    def __init__(self, pde_fn: PDEFunc, loss_fn: Loss, cfg: Config):
         adj_cfg = cfg.adj_cfg
         fwd_cfg = cfg.fwd_cfg
+        self.loss_fn = loss_fn
         self.cfg = cfg
         self.DEVICE = cfg.DEVICE
 
@@ -46,16 +46,10 @@ class PDEAdjoint:
         adj_jacob_calc = get_jac_calc(us_grid, pde_forward, adj_cfg)
         adjoint_solver = LinearSolver("iterative", self.DEVICE, adj_cfg.lin_solve_cfg)
 
-        # Loss function
-        N_us_grad = us_grid.N_us_train.item()
-        us_base = torch.full((N_us_grad,), 0., device=self.DEVICE)
-        loss_fn = MSELoss(us_base)
-
         self.pde_fn = pde_fn
         self.us_grid = us_grid
         self.pde_forward = pde_forward
         self.fwd_solver = solver
-        self.loss_fn = loss_fn
         self.adj_jacob_calc = adj_jacob_calc
         self.adjoint_solver = adjoint_solver
 
@@ -80,10 +74,13 @@ class PDEAdjoint:
         G = self.loss_fn(us_grad)
         G_u = self.loss_fn.gradient()
 
+        # TODO: Why grad?
+        jac_T = jac_T.detach()
+
         adjoint = self.adjoint_solver.solve(jac_T, G_u)
         adj_view = torch.full(pde_mask_.shape, 0., device=self.DEVICE)  # Shape = [N]
         adj_view[pde_mask_] = adjoint
-        show_grid(adj_view, "adjoint")
+        # show_grid(adj_view, "adjoint")
 
         self.adjoint = adj_view
 
@@ -118,13 +115,20 @@ def main():
     cfg = Config()
     pde_fn = Poisson(cfg, device=cfg.DEVICE)
     # pde_fn.plot_bc()
-    # exit(6)
 
-    pde_adj = PDEAdjoint(pde_fn, cfg)
+    N_us_grad = torch.isnan(pde_fn.dirichlet_bc).sum().item()   # Hardcoded
+    us_base = torch.full((N_us_grad,), 0., device=cfg.DEVICE)
+    loss_fn = MSELoss(us_base)
+
+    pde_adj = PDEAdjoint(pde_fn, loss_fn, cfg)
 
     pde_adj.forward_solve()
     pde_adj.adjoint_solve()
     pde_adj.backward()
+
+    us, grad_mask, _ = pde_adj.us_grid.get_us_mask()
+    us = us[grad_mask]
+    torch.save(us, 'us.pt')
 
     for n, p in pde_fn.named_parameters():
         print(f'{n = }, {p.grad = }')

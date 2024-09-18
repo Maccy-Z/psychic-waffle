@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 @dataclass
 class FwdConfig:
     # Forward linear solver settings
-    maxiter: int = 250
+    maxiter: int = 500
     restart: int = 125
     rtol: float = 1e-3
     lin_solve_cfg: dict = None
@@ -13,7 +13,7 @@ class FwdConfig:
     jac_mode: str = "split"
 
     # Forward PDE solver settings
-    N_iter: int = 4
+    N_iter: int = 3
     lr: float = 1
     acc: float = 1e-4
 
@@ -42,7 +42,7 @@ class Config:
     # Grid settings
     xmin: float = 0
     xmax: float = 1
-    N: tuple[int] = (150, 150)
+    N: tuple[int] = (15, 15)
 
     # Forward PDE solver config
     fwd_cfg: FwdConfig = field(default_factory=FwdConfig)

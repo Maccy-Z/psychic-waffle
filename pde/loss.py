@@ -30,6 +30,7 @@ class MSELoss(Loss):
 
     def forward(self, us_pred):
         self.us_pred = us_pred
+        #print(f'{us_pred.shape = }, {self.us_true.shape = }')
         loss = torch.mean((self.us_pred - self.us_true)**2)
         self.loss_out = loss
 

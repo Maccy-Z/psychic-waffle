@@ -1,29 +1,29 @@
-
 import torch
-from utils import show_grid
 
+from PDEAdjoint import PDEAdjoint
+from pdes.PDEs import Poisson, LearnedFunc
+from config import Config
+from pde.loss import MSELoss
 
-dfdus = torch.load("dfdu.pth", weights_only=True)
+def main():
 
-dfdu, dfduX, dfduXX = dfdus
-h = 1
+    cfg = Config()
+    pde_fn = LearnedFunc(cfg, device=cfg.DEVICE)
 
+    us_base = torch.load('us.pt', weights_only=True) # torch.full((N_us_grad,), 0., device=cfg.DEVICE)
+    loss_fn = MSELoss(us_base)
 
-# Start with a single row
-dfdu, dfduX, dfduXX = dfdu[0, :, 1], dfduX[0, :, 1], dfduXX[0, :, 1]
-N = dfdu.shape[0]
+    pde_adj = PDEAdjoint(pde_fn, loss_fn, cfg)
 
-transform = torch.tensor([[1, 0, -1/h**2], [0, 1/(2*h), 1/h**2], [0, -1/(2*h), 1/h**2]], device='cuda')
-f_abc = torch.stack([dfdu, dfduX, dfduXX])
-print(f_abc.shape)
-f_us = torch.matmul(transform, f_abc)
-print(f_us.shape)
-#
-# jacobian = torch.zeros((N, N))
-#
-# # Diagonal elements
-# jacobian.diagonal().copy_(dfdu - 2 / h**2 * dfduXX)
-# # Offset terms
-# print(dfduXX[0])
-# jacobian.diagonal(offset=-1).copy_(1 / h**2 * dfduXX[:-1])
-# jacobian.diagonal(offset=1).copy_(1 / h**2 * dfduXX[1:])
+    pde_adj.forward_solve()
+    pde_adj.adjoint_solve()
+    pde_adj.backward()
+
+    us, Xs = pde_adj.us_grid.get_real_us_Xs()
+
+    for n, p in pde_fn.named_parameters():
+        print(f'{n = }, {p.grad = }')
+
+if __name__ == "__main__":
+    main()
+
