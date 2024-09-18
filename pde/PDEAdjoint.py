@@ -64,8 +64,9 @@ class PDEAdjoint:
         """ Solve for adjoint """
 
         # Adjoint solves for lambda dgdu = J^T * lambda.
-        jacobian, _ = self.adj_jacob_calc.jacobian()
-        jac_T = jacobian.T
+        with torch.no_grad():
+            jacobian, _ = self.adj_jacob_calc.jacobian()
+            jac_T = jacobian.T
 
         # One adjoint value for each trained u value, including boundary points.
         us, grad_mask, pde_mask = self.us_grid.get_us_mask()
@@ -73,9 +74,6 @@ class PDEAdjoint:
         us_grad = us[grad_mask]
         G = self.loss_fn(us_grad)
         G_u = self.loss_fn.gradient()
-
-        # TODO: Why grad?
-        jac_T = jac_T.detach()
 
         adjoint = self.adjoint_solver.solve(jac_T, G_u)
         adj_view = torch.full(pde_mask_.shape, 0., device=self.DEVICE)  # Shape = [N]

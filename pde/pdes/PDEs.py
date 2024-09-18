@@ -77,4 +77,5 @@ class LearnedFunc(PDEFunc):
 
         p1, p2, p3, p4 = self.test_param
         resid = p1 * d2udX2[0] + p2 * d2udX2[1] + p3 * u + p4
+
         return resid
