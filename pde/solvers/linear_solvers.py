@@ -49,8 +49,7 @@ class LinearSolver:
         A_sparse_cupy = sp.csr_matrix(A_cupy)
 
         # Solve the sparse linear system Ax = b using CuPy
-        default_args = {'maxiter': 1000, 'restart': 125, 'rtol': 1e-3}
-        x, info = gmres(A_sparse_cupy, b_cupy, **{**default_args, **self.cfg})
+        x, info = gmres(A_sparse_cupy, b_cupy, **self.cfg)
         x = torch.from_dlpack(x)
         return x
 

@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 @dataclass
 class FwdConfig:
     # Forward linear solver settings
-    maxiter: int = 500
-    restart: int = 125
+    maxiter: int = 300
+    restart: int = 75
     rtol: float = 1e-4
     lin_solve_cfg: dict = None
 
@@ -27,8 +27,8 @@ class AdjointConfig:
     jac_mode: str = "split"
 
     # Linear solver settings
-    maxiter: int = 1000
-    restart: int = 125
+    maxiter: int = 500
+    restart: int = 100
     rtol: float = 1e-4
     lin_solve_cfg: dict = None
 
