@@ -13,7 +13,7 @@ class FwdConfig:
     jac_mode: str = "split"
 
     # Forward PDE solver settings
-    N_iter: int = 10
+    N_iter: int = 3
     lr: float = 1
     acc: float = 1e-4
 

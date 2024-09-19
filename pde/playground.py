@@ -5,7 +5,7 @@ import time
 import logging
 
 from pde.NeuralPDE import NeuralPDE
-from pdes.PDEs import Poisson, LearnedFunc
+from pdes.PDEs import Poisson, LearnedFunc, NNFunc
 from config import Config
 from pde.loss import MSELoss
 from utils import show_grid, setup_logging
@@ -14,7 +14,7 @@ setup_logging()
 def fit_model():
 
     cfg = Config()
-    pde_fn = LearnedFunc(cfg, device=cfg.DEVICE)
+    pde_fn = NNFunc(cfg, device=cfg.DEVICE)
 
     optim = torch.optim.Adam(pde_fn.parameters(), lr=0.01)
 
@@ -38,13 +38,15 @@ def fit_model():
 
         loss = loss.item()
         print(f'{loss = :.3g}')
-        for n, p in pde_fn.named_parameters():
-            print(f'p = {p.data.cpu()}')
+        # for n, p in pde_fn.named_parameters():
+        #     print(f'p = {p.data.cpu()}')
             # print(f'grad = {p.grad.data.cpu()}')
         optim.zero_grad()
 
     us, _, _ = pde_adj.us_grid.get_us_mask()
     show_grid(us, "us")
+
+    torch.save(pde_fn, "model.pt")
 
 def true_pde():
     cfg = Config()
@@ -60,5 +62,5 @@ def true_pde():
 
 
 if __name__ == "__main__":
-    true_pde()
+    fit_model()
 
