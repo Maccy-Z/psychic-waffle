@@ -52,23 +52,19 @@ class PDEFunc(torch.nn.Module, ABC):
 class Poisson(PDEFunc):
     def __init__(self, cfg: Config, device='cpu'):
         super().__init__(cfg=cfg, device=device)
-
-        self.test_param = torch.nn.Parameter(torch.tensor([1, 1.], device=device))
         self.to(device)
-
 
     def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
         u, dudX, d2udX2 = u_dus
         u = u[..., 0]
-
-        resid = d2udX2[..., 0] + d2udX2[..., 1] + 5 * u  + 5 * self.test_param[0]
+        resid = d2udX2[..., 0] + d2udX2[..., 1] + 5 * u  + 5
         return resid
 
 class LearnedFunc(PDEFunc):
     def __init__(self, cfg, device='cpu'):
         super().__init__(cfg=cfg, device=device)
 
-        self.test_param = torch.nn.Parameter(torch.tensor([1.3, 1., 4., 4.], device=device))
+        self.test_param = torch.nn.Parameter(torch.tensor([1.3, 1., 0., 0.], device=device))
         self.to(device)
 
     def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):

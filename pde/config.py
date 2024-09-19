@@ -10,10 +10,10 @@ class FwdConfig:
 
     # Jacobian mode
     num_blocks: int = 4
-    jac_mode: str = "dense"
+    jac_mode: str = "split"
 
     # Forward PDE solver settings
-    N_iter: int = 3
+    N_iter: int = 10
     lr: float = 1
     acc: float = 1e-4
 
@@ -24,7 +24,7 @@ class FwdConfig:
 class AdjointConfig:
     # Jacobian mode
     num_blocks: int = 4
-    jac_mode: str = "dense"
+    jac_mode: str = "split"
 
     # Linear solver settings
     maxiter: int = 1000
@@ -42,7 +42,7 @@ class Config:
     # Grid settings
     xmin: float = 0
     xmax: float = 1
-    N: tuple[int] = (15, 15)
+    N: tuple[int] = (101, 101)
 
     # Forward PDE solver config
     fwd_cfg: FwdConfig = field(default_factory=FwdConfig)

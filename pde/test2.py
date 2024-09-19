@@ -1,5 +1,8 @@
 import torch
 from cprint import c_print
+from codetiming import Timer
+import time
+import logging
 
 from pde.NeuralPDE import NeuralPDE
 from pdes.PDEs import Poisson, LearnedFunc
@@ -8,36 +11,54 @@ from pde.loss import MSELoss
 from utils import show_grid, setup_logging
 
 setup_logging()
-def main():
+def fit_model():
 
     cfg = Config()
     pde_fn = LearnedFunc(cfg, device=cfg.DEVICE)
 
-    optim = torch.optim.SGD(pde_fn.parameters(), momentum=0., lr=1.)
+    optim = torch.optim.Adam(pde_fn.parameters(), lr=0.01)
 
     us_base = torch.load('us.pt', weights_only=True) # torch.full((N_us_grad,), 0., device=cfg.DEVICE)
     loss_fn = MSELoss(us_base)
 
     pde_adj = NeuralPDE(pde_fn, loss_fn, cfg)
 
-    for i in range(10):
+    st = time.time()
+    for i in range(100):
         print()
-        c_print(f'Iteration {i}', color="bright_cyan")
-        pde_adj.forward_solve()
-        pde_adj.adjoint_solve()
+        c_print(f'Iteration {i}, time: {time.time() - st:.2g}s', color="bright_cyan")
+        st = time.time()
+        with Timer(text="Forward time: {:.3f}", logger=logging.info):
+            pde_adj.forward_solve()
+        with Timer(text="Adjoint time: {:.3f}", logger=logging.info):
+            loss = pde_adj.adjoint_solve()
         pde_adj.backward()
+        optim.step()
 
+
+        loss = loss.item()
+        print(f'{loss = :.3g}')
         for n, p in pde_fn.named_parameters():
             print(f'p = {p.data.cpu()}')
-            print(f'grad = {p.grad.data.cpu()}')
-
-        optim.step()
+            # print(f'grad = {p.grad.data.cpu()}')
         optim.zero_grad()
 
-    us, Xs = pde_adj.get_us_Xs()
+    us, _, _ = pde_adj.us_grid.get_us_mask()
     show_grid(us, "us")
+
+def true_pde():
+    cfg = Config()
+    pde_fn = Poisson(cfg, device=cfg.DEVICE)
+    pde_adj = NeuralPDE(pde_fn, None, cfg)
+
+    pde_adj.forward_solve()
+
+    us, grad_mask, _ = pde_adj.us_grid.get_us_mask()
+    show_grid(us, "us")
+    us = us[grad_mask]
+    torch.save(us, 'us.pt')
 
 
 if __name__ == "__main__":
-    main()
+    true_pde()
 

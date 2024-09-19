@@ -157,7 +157,6 @@ def gmres(A, b, x0=None, rtol=1e-5, restart=None, maxiter=None, M=None, atol=Non
         restart = 20
     restart = min(restart, n)
 
-
     V = cupy.empty((n, restart), dtype=A.dtype, order='F')
     H = cupy.zeros((restart+1, restart), dtype=A.dtype, order='F')
     e = np.zeros((restart+1,), dtype=A.dtype)

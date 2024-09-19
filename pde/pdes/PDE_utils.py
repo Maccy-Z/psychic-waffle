@@ -46,7 +46,7 @@ class PDEForward:
         return residuals
 
 
-class PDEAdjoint_tmp:
+class PDEAdjoint:
     def __init__(self, u_grid: UGrid, pde_func: PDEFunc, deriv_calc: DerivativeCalc, adj_jacob_calc, adj_lin_solver, loss_fn: Loss):
         self.pde_func = pde_func
         self.us_grid = u_grid
@@ -71,7 +71,7 @@ class PDEAdjoint_tmp:
 
         loss = self.loss_fn(us_grad)
         loss_u = self.loss_fn.gradient()
-        with Timer(text="Adjoint solve: {:.4f}", logger=logging.info):
+        with Timer(text="Adjoint solve: {:.4f}", logger=logging.debug):
             adjoint = self.adj_lin_solver.solve(jac_T, loss_u)
 
         return adjoint, loss

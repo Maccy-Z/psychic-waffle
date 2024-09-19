@@ -1,13 +1,12 @@
 import torch
 from cprint import c_print
-from codetiming import Timer
 import logging
 
 from U_grid import UGridOpen2D
 from pde.solvers.jacobian import get_jac_calc
 from pdes.discrete_derivative import DerivativeCalc2D
 from pdes.PDEs import PDEFunc
-from pdes.PDE_utils import PDEForward, PDEAdjoint_tmp
+from pdes.PDE_utils import PDEForward, PDEAdjoint
 from solvers.linear_solvers import SolverNewton, LinearSolver
 from config import Config
 from pde.loss import MSELoss, Loss
@@ -45,7 +44,7 @@ class NeuralPDE:
         # Adjoint solver
         adj_lin_solver = LinearSolver("iterative", self.DEVICE, adj_cfg.lin_solve_cfg)
         adj_jacob_calc = get_jac_calc(us_grid, pde_forward, adj_cfg)
-        pde_adjoint = PDEAdjoint_tmp(us_grid, pde_fn, deriv_calc, adj_jacob_calc, adj_lin_solver, loss_fn)
+        pde_adjoint = PDEAdjoint(us_grid, pde_fn, deriv_calc, adj_jacob_calc, adj_lin_solver, loss_fn)
 
         self.pde_fn = pde_fn
         self.us_grid = us_grid
@@ -65,7 +64,7 @@ class NeuralPDE:
         adjoint, loss = self.pde_adjoint.adjoint_solve()
         self.adjoint = adjoint
 
-        c_print(f'loss: {loss.item():.4g}', "bright_magenta")
+        # c_print(f'loss: {loss.item():.3g}', "bright_magenta")
         return loss
 
     def backward(self):

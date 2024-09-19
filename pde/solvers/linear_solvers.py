@@ -114,7 +114,7 @@ class SolverNewton:
 
             self.sol_grid.update_grid(deltas)
 
-            logging.debug(f'Residual: {torch.mean(torch.abs(residuals)):.3g}, iteration {i}')
+            logging.debug(f'Iteration {i}, Mean residual: {torch.mean(torch.abs(residuals)):.3g}')
             if torch.mean(torch.abs(residuals)) < self.solve_acc:
                 logging.info(f"Newton solver converged early at iteration {i+1}")
                 break
