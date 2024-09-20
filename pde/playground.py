@@ -24,7 +24,7 @@ def fit_model():
     pde_adj = NeuralPDE(pde_fn, loss_fn, cfg)
 
     st = time.time()
-    for i in range(100):
+    for i in range(200):
         print()
         c_print(f'Iteration {i}, time: {time.time() - st:.2g}s', color="bright_cyan")
         st = time.time()
@@ -62,5 +62,7 @@ def true_pde():
 
 
 if __name__ == "__main__":
-    fit_model()
+    torch.manual_seed(0)
+    true_pde()
+    # fit_model()
 

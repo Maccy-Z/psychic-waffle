@@ -58,7 +58,10 @@ class Poisson(PDEFunc):
     def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
         u, dudX, d2udX2 = u_dus
         u = u[..., 0]
-        resid = d2udX2[..., 0] + d2udX2[..., 1] + 5 * u  + 5
+        dudx, dudy = dudX[..., 0], dudX[..., 1]
+        d2udx2, d2udy2 = d2udX2[..., 0], d2udX2[..., 1]
+
+        resid = 1 * d2udx2 + 1 * d2udy2 + 0 * dudx + 0 * dudy - 5 * u + 5
         return resid
 
 class LearnedFunc(PDEFunc):
@@ -78,17 +81,18 @@ class LearnedFunc(PDEFunc):
         return resid
 
 class NNFunc(PDEFunc):
-    def __init__(self, cfg, device='cpu'):
+    def __init__(self, cfg, device='cuda'):
         super().__init__(cfg=cfg, device=device)
 
         self.lin1 = nn.Linear(5, 32)
         self.lin2 = nn.Linear(32, 1)
 
+        nn.init.zeros_(self.lin2.bias)
+
         self.to(device)
 
     def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
         u, dudX, d2udX2 = u_dus
-        u = u[..., 0].unsqueeze(-1)
 
         in_state = torch.cat([u, dudX, d2udX2], dim=-1)
         f = self.lin1(in_state)
