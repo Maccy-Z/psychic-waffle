@@ -1,7 +1,7 @@
 import torch
 from pde.U_grid import UGrid, USplitGrid, UNormalGrid
 from pde.pdes.PDE_utils import PDEForward
-from pde.utils import get_split_indices
+from pde.utils import get_split_indices, clamp
 
 def get_jac_calc(us_grid: UGrid, pde_forward: PDEForward, cfg):
     if cfg.jac_mode == "dense":

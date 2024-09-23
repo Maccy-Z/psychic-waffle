@@ -42,7 +42,7 @@ class Config:
     # Grid settings
     xmin: float = 0
     xmax: float = 1
-    N: tuple[int] = (70, 70)
+    N: tuple[int] = (150, 150)
 
     # Forward PDE solver config
     fwd_cfg: FwdConfig = field(default_factory=FwdConfig)
