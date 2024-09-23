@@ -2,15 +2,7 @@ import torch
 from torch import Tensor
 import abc
 from X_grid import XGrid
-from utils import show_grid
-
-
-def adjust_slice(slice_obj, start_adjust=0, stop_adjust=0):
-    """Adjust the given slice object by modifying its start and stop values."""
-    new_start = slice_obj.start + start_adjust
-    new_stop = slice_obj.stop + stop_adjust
-    return slice(new_start, new_stop)
-
+from utils import adjust_slice, show_grid
 
 class UGrid(abc.ABC):
     N_dim: int
@@ -26,6 +18,9 @@ class UGrid(abc.ABC):
     u_mask: tuple[slice, ...]  # Real us points [1:-1, ...]
     N_us_train: int | Tensor
 
+    pde_true_idx: Tensor
+    us_grad_idx: Tensor
+
     def __init__(self, X_grid: XGrid):
         self.device = X_grid.device
         self.Xs = X_grid.Xs
@@ -38,19 +33,9 @@ class UGrid(abc.ABC):
         """
         return self.us, self.grad_mask, self.pde_mask
 
-    def add_nograd_to_us(self, us_grad, mask=None):
-        """
-        Add points that don't have gradient to us. Used for Jacobian computation.
-        """
-        if mask is None:
-            mask = self.grad_mask
-
-        us_all = torch.clone(self.us)
-        us_all[mask] = us_grad
-
-        # Neuman BCs also need to be set using us_grad to make sure gradient is tracked across boundary
-        self._fix_neuman_bc(us_all)
-        return us_all
+    def mask_nonzero_idx(self,):
+        """ Tuples of indices where nonzero elements are in masks. """
+        return self.pde_true_idx, self.us_grad_idx
 
     def update_grid(self, deltas):
         """
@@ -165,7 +150,6 @@ class UGridOpen2D(UGrid2D):
                      ((slice(1, -1), -1), (slice(1, -1), -2)),  # Top
                      ((slice(1, -1), 0), (slice(1, -1), 1))  # Bottom
                      ]
-
         for border_idx, inset_idx in edge_idxs:
             pde_vals, grad_vals = self._set_bc_masks_1D(self.neuman_mask[border_idx], self.dirichlet_mask[inset_idx])
 
@@ -177,6 +161,10 @@ class UGridOpen2D(UGrid2D):
         assert N_us_train == N_us, f"Need as many equations as unknowns, {N_us_train = } != {N_us = }"
 
         self._fix_bc()
+
+        # Precompute nonzero indices on mask
+        self.pde_true_idx = torch.nonzero(self.pde_mask)
+        self.us_grad_idx = torch.nonzero(self.grad_mask)
 
         if self.device == 'cuda':
             self._cuda()
@@ -262,23 +250,24 @@ class USplitGrid(USubGrid):
     """
 
     def __init__(self, us_grid: UGrid, region_mask: tuple[slice, ...], us_grad_mask: torch.Tensor, pde_mask: torch.Tensor):
-        """ region_mask: Region of grid to calculate PDE in.
+        """
+
+            region_mask: Region of grid to calculate PDE in.
             us_grad_mask: Mask of which us have gradient, over full grid. Shape = [N+2, ...]
             pde_mask: Mask of which PDEs are used to fit us, over full grid. Shape = [N+2, ...]
 
-            Note both us_grad_mask and pde_mask have been set to False outside region_mask, but are full arrays.
+            Masks have been set to False outside region_mask, but are still full arrays. Need to reduce their size still using self.inward_mask.
             """
         super().__init__(us_grid.device, us_grid.dx)
 
         self.region_mask = region_mask
-        # Region PDE is calculated is 1 unit inward from region_mask
+        # Region PDE is calculated is 1 unit inward from region_mask. Reshapes from [N+2, ...] to [N, ...]
         self.inward_mask = tuple([adjust_slice(s, start_adjust=1, stop_adjust=-1) for s in region_mask])
 
         # Us in region and us used for PDE and Xs for PDE
         all_us, all_Xs = us_grid.get_all_us_Xs()
         self.us_region = all_us[region_mask]
-        self.us_pde = all_us[self.inward_mask]
-        self.Xs_pde = all_Xs[self.inward_mask] # .permute(2, 0, 1)
+        self.Xs_pde = all_Xs[self.inward_mask]
 
         # Boundary conditions of region
         # Dirichlet is already set, neuman needs to be dynamically set

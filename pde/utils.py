@@ -43,6 +43,14 @@ def get_split_indices(tensor_size, m):
 
     return index_pairs
 
+def clamp(n, min_val, max_val):
+    return max(min(n, max_val), min_val)
+
+def adjust_slice(slice_obj, start_adjust=0, stop_adjust=0):
+    """Adjust the given slice object by modifying its start and stop values."""
+    new_start = slice_obj.start + start_adjust
+    new_stop = slice_obj.stop + stop_adjust
+    return slice(new_start, new_stop)
 
 def setup_logging():
     import logging
