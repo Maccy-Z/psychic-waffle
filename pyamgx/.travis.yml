@@ -1,0 +1,6 @@
+# testing
+#
+branches:
+    only:
+        - master
+        - /.*/

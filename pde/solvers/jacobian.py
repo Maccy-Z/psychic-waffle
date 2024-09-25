@@ -1,7 +1,7 @@
 import torch
 from pde.U_grid import UGrid, USplitGrid, UNormalGrid
 from pde.pdes.PDE_utils import PDEForward
-from pde.utils import get_split_indices, clamp
+from pde.utils import get_split_indices, clamp, show_grid
 
 def get_jac_calc(us_grid: UGrid, pde_forward: PDEForward, cfg):
     if cfg.jac_mode == "dense":
@@ -103,6 +103,12 @@ class SplitJacobCalc(JacobCalc):
             # Fill in calculated parts
             jacobian[pde_slice, us_slice] = jacob
             residuals[pde_slice] = resid.flatten()
+
+        print(jacobian)
+        show_grid(jacobian[:500, :500], "jacobian")
+        torch.save(jacobian, "jacobian.pt")
+
+        exit(9)
         return jacobian, residuals
 
 # class SplitJacobCalc(JacobCalc):

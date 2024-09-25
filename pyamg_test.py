@@ -1,6 +1,4 @@
 import numpy as np
-import scipy.sparse as sparse
-import scipy.sparse.linalg as splinalg
 import torch
 
 import pyamgx
@@ -26,38 +24,36 @@ cfg = pyamgx.Config().create_from_dict({
 rsc = pyamgx.Resources().create_simple(cfg)
 
 # Create matrices and vectors:
-A = pyamgx.Matrix().create(rsc, mode="dFFI")
 b = pyamgx.Vector().create(rsc, mode="dFFI")
-x = pyamgx.Vector().create(rsc, mode="dFFI")
 
-# Create solver:
-solver = pyamgx.Solver().create(rsc, cfg, mode="dFFI")
-
-# Upload system:
-
-M = sparse.csr_matrix(np.random.rand(5, 5).astype(np.float32))
 rhs = np.random.rand(5).astype(np.float32)
-sol = np.zeros(5, dtype=np.float32)
-
-A.upload_CSR(M)
 b.upload(rhs)
-x.upload(sol)
 
-# Setup and solve system:
-solver.setup(A)
-solver.solve(b, x)
+b_new = torch.arange(5, device='cuda', dtype=torch.float32)
+b.upload_torch(b_new)
+
+b_retrieved = b.download_torch()
+print(f'{b_new = }')
+print(f'{b_retrieved = }')
 
 # Download solution
-x.download(sol)
-print("pyamgx solution: ", sol)
-print("scipy solution : ", splinalg.spsolve(M, rhs))
 
 # Clean up:
-A.destroy()
-x.destroy()
 b.destroy()
-solver.destroy()
 rsc.destroy()
 cfg.destroy()
-
 pyamgx.finalize()
+
+
+"""
+const void* get_cuda_pointer(AMGX_vector_handle vec)
+{
+    typedef Vector<typename TemplateMode<CASE>::Type> VectorLetterT;
+    typedef CWrapHandle<AMGX_vector_handle, VectorLetterT> VectorW;
+
+    VectorW wrapV(vec);
+    VectorLetterT &v = *wrapV.wrapped();
+
+    return v.raw();  // Return the raw CUDA pointer
+}
+"""
