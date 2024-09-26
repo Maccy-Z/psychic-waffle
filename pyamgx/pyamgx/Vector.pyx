@@ -220,7 +220,7 @@ cdef class Vector:
         cdef unsigned long long ptr = tensor.data_ptr()
         cdef float* c_ptr = <float*>ptr
 
-        print(f"Uploading CUDA pointer (float*): {<unsigned long long> c_ptr:#x}")
+        # print(f"Uploading CUDA pointer (float*): {<unsigned long long> c_ptr:#x}")
 
         AMGX_vector_upload(self.vec, n, 1, <void *> c_ptr)
         return
@@ -238,7 +238,7 @@ cdef class Vector:
         cdef unsigned long long ptr = tensor.data_ptr()
         cdef float* c_ptr = <float*>ptr
 
-        print(f"Donwloading CUDA pointer (float*): {<unsigned long long> c_ptr:#x}")
+        # print(f"Donwloading CUDA pointer (float*): {<unsigned long long> c_ptr:#x}")
         AMGX_vector_download(self.vec, <void *> c_ptr)
 
         return tensor
@@ -255,7 +255,6 @@ cdef class Vector:
 
         address = <unsigned long long><float*>ptr
         print(f"Pointer address: 0x{address:016x}")
-        #tensor = torch.from_blob(<unsigned long long>ptr, (n,), dtype=torch.float32)
         mem = cupy.cuda.UnownedMemory(address, n*4, owner=None)
         memptr = cupy.cuda.MemoryPointer(mem, offset=0)
         tensor = cupy.ndarray((n,), dtype=cupy.float32, memptr=memptr)

@@ -104,11 +104,8 @@ class SplitJacobCalc(JacobCalc):
             jacobian[pde_slice, us_slice] = jacob
             residuals[pde_slice] = resid.flatten()
 
-        print(jacobian)
-        show_grid(jacobian[:500, :500], "jacobian")
-        torch.save(jacobian, "jacobian.pt")
 
-        exit(9)
+        #jacobian = jacobian.to_sparse_csr()
         return jacobian, residuals
 
 # class SplitJacobCalc(JacobCalc):

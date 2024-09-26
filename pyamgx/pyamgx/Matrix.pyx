@@ -1,3 +1,6 @@
+import torch
+import numpy as np
+
 cdef class Matrix:
     """
     `Matrix` : Class for creating and handling AMGX Matrix objects.
@@ -42,7 +45,6 @@ cdef class Matrix:
         -------
         self : Matrix
         """
-        print(f'{asMode(mode) = }')
         check_error(AMGX_matrix_create(&self.mtx, rsrc.rsrc, asMode(mode)))
         return self
 
@@ -135,6 +137,34 @@ cdef class Matrix:
 
         self.upload(row_ptrs, col_indices, data, shape=[nrows, ncols])
         return self
+
+    def upload_csr_torch(self, tensor): # nrows, nnz, row_ptrs, col_indices, data):
+        """ Upload a pytorch cuda CSR tensor """
+
+        nrows = tensor.size(0)
+        nnz = tensor._nnz()
+        data = tensor.values()
+        row_ptrs = tensor.crow_indices().to(torch.int32)
+        col_idx = tensor.col_indices().to(torch.int32)
+
+        cdef unsigned long long ptr = row_ptrs.data_ptr()
+        cdef int * row_ptrs_ptr = <int *> ptr
+
+        cdef unsigned long long ptr2 = col_idx.data_ptr()
+        cdef int * col_idx_ptr = <int *> ptr2
+
+        cdef unsigned long long ptr3 = data.data_ptr()
+        cdef void * data_ptr = <void *> ptr3
+
+        AMGX_matrix_upload_all(
+            self.mtx,
+            nrows, nnz, 1, 1,
+            row_ptrs_ptr,  col_idx_ptr,
+            <void *> data_ptr, NULL)
+
+        pass
+
+
 
     def get_size(self):
         """

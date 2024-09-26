@@ -1,22 +1,28 @@
 import torch
-import torch.nn as nn
+import gc
 
-model = torch.load("model.pt", map_location='cpu')
 
-# Extract weights and biases
-W1 = model.lin1.weight.data
-b1 = model.lin1.bias.data
-W2 = model.lin2.weight.data
-b2 = model.lin2.bias.data
+def process_and_delete_tensor(tensor):
+    # Convert to sparse CSR format
+    sparse_tensor = tensor.to_sparse_csr()
 
-# Compute combined weights and biases
-W_combined = torch.matmul(W2, W1)
-b_combined = torch.matmul(W2, b1) + b2
+    # Process the sparse tensor if needed...
 
-# Create the combined linear layer
-combined_linear = nn.Linear(5, 1, bias=True)
-combined_linear.weight.data = W_combined
-combined_linear.bias.data = b_combined
+    # Delete the original dense tensor
+    del tensor
 
-print(W_combined)
-print(b_combined)
+    # Optionally free up GPU memory if the tensor is on the GPU
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    # Force garbage collection (optional, may help with large objects)
+    gc.collect()
+
+    return sparse_tensor
+
+
+# Create a large tensor and pass it to the function
+dense_tensor = torch.randn(10000, 10000, device='cuda')  # Large tensor on GPU
+sparse_tensor = process_and_delete_tensor(dense_tensor)
+
+print(dense_tensor)

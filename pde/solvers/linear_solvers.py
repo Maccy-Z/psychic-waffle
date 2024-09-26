@@ -1,7 +1,6 @@
 import torch
 import scipy.sparse.linalg as linalg
 from codetiming import Timer
-import logging
 
 import cupy as cp
 import cupyx.scipy.sparse as sp
@@ -9,20 +8,21 @@ import cupyx.scipy.sparse.linalg as sp_linalg
 from cprint import c_print
 from typing import Literal, Callable
 
-from pde.config import FwdConfig
-from pde.U_grid import UGrid
-from pde.pdes.PDE_utils import PDEForward
-from pde.solvers.jacobian import JacobCalc
 from pde.solvers.gmres import gmres
+from pde.solvers.pyamgx_holder import PyAMGXManager
 
-SolvStr = Literal['sparse', 'dense', 'iterative']
+SolvStr = Literal['sparse', 'dense', 'iterative', 'amgx']
 JacStr = Literal['dense', 'split']
 
 class LinearSolver:
     """ Solve Ax = b for x """
     solver: Callable
+    preproc: Callable
+
     cfg: dict = None
     def __init__(self, mode: SolvStr, device: str, cfg: dict=None):
+        self.preproc = self.preproc_default
+
         if device == "cuda":
             if mode == "dense":
                 self.solver = self.cuda_dense
@@ -31,6 +31,12 @@ class LinearSolver:
             elif mode == "iterative":
                 self.solver = self.cuda_iterative
                 self.cfg = cfg
+                self.preproc = self.preproc_sparse
+            elif mode == "amgx":
+                self.cfg = cfg
+                self.amgx_solver = PyAMGXManager().create_solver(cfg)
+                self.solver = self.cuda_amgx
+                self.preproc = self.preproc_sparse
 
         elif device == "cpu":
             if mode == "dense":
@@ -41,15 +47,22 @@ class LinearSolver:
     def solve(self, A: torch.Tensor, b: torch.Tensor):
         return self.solver(A, b)
 
-    def cuda_iterative(self, A: torch.Tensor, b: torch.Tensor):
-        A_cupy = cp.from_dlpack(A)
-        b_cupy = cp.from_dlpack(b)
+    def cuda_amgx(self, A_cp: cp.array, b: torch.Tensor):
+        # Cupy to sparse is faster than torch to sparse
+        self.amgx_solver.init_solver_cp(A_cp)
+
+        x = torch.zeros_like(b)
+        x = self.amgx_solver.solve(b, x)
+        return x
+
+    def cuda_iterative(self, A_cp: cp.array, b: torch.Tensor):
+        b_cp = cp.from_dlpack(b)
 
         # Convert the dense matrix A_cupy to a sparse CSR matrix
-        A_sparse_cupy = sp.csr_matrix(A_cupy)
+        A_sparse_cupy = sp.csr_matrix(A_cp)
 
         # Solve the sparse linear system Ax = b using CuPy
-        x, info = gmres(A_sparse_cupy, b_cupy, **self.cfg)
+        x, info = gmres(A_sparse_cupy, b_cp, **self.cfg)
         x = torch.from_dlpack(x)
         return x
 
@@ -81,41 +94,20 @@ class LinearSolver:
         deltas = torch.linalg.solve(A, b)
         return deltas
 
+    def preproc_tensor(self, A: torch.Tensor):
+        """ Preprocess A matrix before solving, convert to sparse if needed so original can be deleted. """
+        return self.preproc(A)
 
-class SolverNewton:
-    def __init__(self, pde_func: PDEForward, sol_grid: UGrid, lin_solver: LinearSolver, jac_calc: JacobCalc, cfg: FwdConfig):
-        self.pde_func = pde_func
-        self.sol_grid = sol_grid
-        self.lin_solver = lin_solver
+    def preproc_default(self, A: torch.Tensor):
+        return A
 
-        self.N_iter = cfg.N_iter
-        self.lr = cfg.lr
-        self.N_points = sol_grid.N.prod()
-        self.solve_acc = cfg.acc
+    def preproc_sparse(self, A: torch.Tensor):
+        """ Function to convert a torch sparse tensor to a cupy sparse tensor """
+        A_cupy = cp.from_dlpack(A)
+        A_sparse_cupy = sp.csr_matrix(A_cupy)
+        return A_sparse_cupy
 
-        self.jac_calc = jac_calc
-        self.device = sol_grid.device
 
-    @torch.no_grad()
-    def find_pde_root(self):
-        """
-        Find the root of the PDE using Newton Raphson:
-            grad(F(x_n)) * (x_{n+1} - x_n) = -F(x_n)
 
-        :param extra: Additional conditioning for the PDE
-        """
-        for i in range(self.N_iter):
-            with Timer(text="Time to calculate jacobian: : {:.4f}", logger=logging.debug):
-                jacobian, residuals = self.jac_calc.jacobian()
-
-            with Timer(text="Time to solve: : {:.4f}", logger=logging.debug):
-                deltas = self.lin_solver.solve(jacobian, residuals)
-
-            self.sol_grid.update_grid(deltas)
-
-            logging.debug(f'Iteration {i}, Mean residual: {torch.mean(torch.abs(residuals)):.3g}')
-            if torch.mean(torch.abs(residuals)) < self.solve_acc:
-                logging.info(f"Newton solver converged early at iteration {i+1}")
-                break
 
 

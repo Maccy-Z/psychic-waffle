@@ -7,7 +7,8 @@ from pde.solvers.jacobian import get_jac_calc
 from pdes.discrete_derivative import DerivativeCalc2D
 from pdes.PDEs import PDEFunc
 from pdes.PDE_utils import PDEForward, PDEAdjoint
-from solvers.linear_solvers import SolverNewton, LinearSolver
+from solvers.linear_solvers import LinearSolver
+from solvers.solver_newton import SolverNewton
 from config import Config
 from pde.loss import MSELoss, Loss
 
@@ -37,12 +38,12 @@ class NeuralPDE:
         pde_forward = PDEForward(us_grid, pde_fn, deriv_calc)
 
         # Forward solver
-        fwd_lin_solver = LinearSolver("iterative", cfg.DEVICE, cfg=fwd_cfg.lin_solve_cfg)
+        fwd_lin_solver = LinearSolver(fwd_cfg.lin_mode, cfg.DEVICE, cfg=fwd_cfg.lin_solve_cfg)
         fwd_jacob_calc = get_jac_calc(us_grid, pde_forward, fwd_cfg)
         newton_solver = SolverNewton(pde_forward, us_grid, fwd_lin_solver, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
 
         # Adjoint solver
-        adj_lin_solver = LinearSolver("iterative", self.DEVICE, adj_cfg.lin_solve_cfg)
+        adj_lin_solver = LinearSolver(adj_cfg.lin_mode, self.DEVICE, adj_cfg.lin_solve_cfg)
         adj_jacob_calc = get_jac_calc(us_grid, pde_forward, adj_cfg)
         pde_adjoint = PDEAdjoint(us_grid, pde_fn, deriv_calc, adj_jacob_calc, adj_lin_solver, loss_fn)
 

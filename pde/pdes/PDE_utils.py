@@ -64,6 +64,7 @@ class PDEAdjoint:
         with torch.no_grad():
             jacobian, _ = self.adj_jacob_calc.jacobian()    # Shape = [N_eq, N_us]
             jac_T = jacobian.T
+            del jacobian
 
         # One adjoint value for each trained u value, including boundary points.
         us, grad_mask, _ = self.us_grid.get_us_mask()
@@ -72,7 +73,10 @@ class PDEAdjoint:
         loss = self.loss_fn(us_grad)
         loss_u = self.loss_fn.gradient()
         with Timer(text="Adjoint solve: {:.4f}", logger=logging.debug):
-            adjoint = self.adj_lin_solver.solve(jac_T, loss_u)
+            # Free memory of dense jacobian before solving adjoint equation.
+            jac_T_proc = self.adj_lin_solver.preproc_tensor(jac_T)
+            del jac_T
+            adjoint = self.adj_lin_solver.solve(jac_T_proc, loss_u)
 
         return adjoint, loss
 
