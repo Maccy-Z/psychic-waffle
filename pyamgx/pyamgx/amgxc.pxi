@@ -57,9 +57,9 @@ cdef extern from "amgx_c.h":
 
     # Init & Shutdown:
     AMGX_RC AMGX_initialize()
-    AMGX_RC AMGX_initialize_plugins()
+    # AMGX_RC AMGX_initialize_plugins()
     AMGX_RC AMGX_finalize()
-    AMGX_RC AMGX_finalize_plugins()
+    # AMGX_RC AMGX_finalize_plugins()
 
     # System:
     AMGX_RC AMGX_pin_memory(void *ptr,
@@ -172,4 +172,11 @@ cdef extern from "amgx_c.h":
     AMGX_RC AMGX_read_system(
         AMGX_matrix_handle mtx, AMGX_vector_handle rhs,
         AMGX_vector_handle sol, const char *filename)
+
+    AMGX_RC AMGX_vector_download2(
+            const AMGX_vector_handle vec,
+            void *data)
+
+    void *vector_pointer_get(AMGX_vector_handle vec)
+
 

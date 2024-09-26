@@ -23,20 +23,26 @@ cfg = pyamgx.Config().create_from_dict({
 
 rsc = pyamgx.Resources().create_simple(cfg)
 
-# Create matrices and vectors:
+# Create vectors:
 b = pyamgx.Vector().create(rsc, mode="dFFI")
-
-rhs = np.random.rand(5).astype(np.float32)
+rhs = np.random.rand(22500).astype(np.float32)
 b.upload(rhs)
 
-b_new = torch.arange(5, device='cuda', dtype=torch.float32)
-b.upload_torch(b_new)
+
 
 b_retrieved = b.download_torch()
-print(f'{b_new = }')
 print(f'{b_retrieved = }')
 
+b_zc = b.download_torch_zerocopy()
+print(f'{b_zc = }')
 # Download solution
+print()
+print("Setting zero")
+b_new = torch.arange(22500, device='cuda', dtype=torch.float32)
+print(f'{b_new = }')
+b.upload_torch(b_new)
+print(f'{b_retrieved = }')
+print(f'{b_zc = }')
 
 # Clean up:
 b.destroy()

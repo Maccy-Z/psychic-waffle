@@ -1,18 +1,7 @@
 from libc.stdint cimport uintptr_t
-from libc.stdio cimport printf
+import ctypes
+import cupy
 import torch
-
-
-# cdef extern from "basic_types.h" :  # Update with actual header
-#     cdef cppclass TemplateMode[CASE]:
-#         cppclass Type  # Expose the nested Type in TemplateMode
-
-# cdef extern from "amgx_c_wrappers.inl":
-#     ctypedef cppclass CWrapHandle[T, U]:  # Template definition
-#         CWrapHandle()  # Constructor or any methods you'd like to expose
-#
-# ctypedef Vector[TemplateMode[CASE].Type] VectorLetterT
-# ctypedef CWrapHandle[AMGX_vector_handle, VectorLetterT]VectorW
 
 cdef class Vector:
     """
@@ -244,16 +233,32 @@ cdef class Vector:
         """
         if tensor is None:
             n, _ = self.get_size()
-            tensor = torch.zeros(n, dtype=torch.float32)
+            tensor = torch.zeros(n, dtype=torch.float32, device='cuda')
 
         cdef unsigned long long ptr = tensor.data_ptr()
         cdef float* c_ptr = <float*>ptr
 
         print(f"Donwloading CUDA pointer (float*): {<unsigned long long> c_ptr:#x}")
-
         AMGX_vector_download(self.vec, <void *> c_ptr)
-
 
         return tensor
 
+    def download_torch_zerocopy(self):
+        """
+        Download data from the Vector to a torch.Tensor.
+        :param tensor:
+        :return:
+        """
+        n, _ = self.get_size()
 
+        cdef void* ptr = vector_pointer_get(self.vec)
+
+        address = <unsigned long long><float*>ptr
+        print(f"Pointer address: 0x{address:016x}")
+        #tensor = torch.from_blob(<unsigned long long>ptr, (n,), dtype=torch.float32)
+        mem = cupy.cuda.UnownedMemory(address, n*4, owner=None)
+        memptr = cupy.cuda.MemoryPointer(mem, offset=0)
+        tensor = cupy.ndarray((n,), dtype=cupy.float32, memptr=memptr)
+
+        tensor = torch.as_tensor(tensor, device="cuda")
+        return tensor

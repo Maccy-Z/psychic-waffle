@@ -18,7 +18,8 @@ def initialize():
     Initialize AMGX.
     """
     check_error(AMGX_initialize())
-    check_error(AMGX_initialize_plugins())
+
+    # check_error(AMGX_initialize_plugins())
 
 
 def get_api_version():
@@ -66,5 +67,6 @@ def finalize():
 
     Finalize AMGX.
     """
-    check_error(AMGX_finalize_plugins())
+
+    # check_error(AMGX_finalize_plugins())
     check_error(AMGX_finalize())
