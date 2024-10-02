@@ -1,14 +1,11 @@
 matplotlib
 numpy
-# pandas
 scipy
 codetiming
-#scikit-umfpack
 torch
-# xitorch
-# findiff
 cupy
 git+https://github.com/rtqichen/torchdiffeq
 torch
 git+https://github.com/Maccy-Z/c_print.git
 cython
+torch_geometric

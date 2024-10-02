@@ -7,8 +7,8 @@ from utils import adjust_slice, show_grid
 class UGrid(abc.ABC):
     N_dim: int
     N: Tensor  # Number of real points in each dimension
-    us: Tensor
-    Xs: Tensor
+    us: Tensor  # Values [N+2, ...]
+    Xs: Tensor  # Coordinates [N+2, ...]
 
     dirichlet_bc: Tensor
     neuman_bc: Tensor
@@ -65,11 +65,11 @@ class UGrid(abc.ABC):
         pass
 
     def _cuda(self):
-        self.us = self.us.cuda()
-        self.Xs = self.Xs.cuda()
-        self.dirichlet_bc = self.dirichlet_bc.cuda()
-        self.grad_mask = self.grad_mask.cuda()
-        self.pde_mask = self.pde_mask.cuda()
+        self.us = self.us.cuda(non_blocking=True)
+        self.Xs = self.Xs.cuda(non_blocking=True)
+        self.dirichlet_bc = self.dirichlet_bc.cuda(non_blocking=True)
+        self.grad_mask = self.grad_mask.cuda(non_blocking=True)
+        self.pde_mask = self.pde_mask.cuda(non_blocking=True)
 
 
 class UGrid2D(UGrid):

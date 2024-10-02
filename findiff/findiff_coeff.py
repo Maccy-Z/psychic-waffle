@@ -1,5 +1,11 @@
 import torch
-from min_norm import min_sq_norm, min_abs_norm
+from typing import Literal
+
+from findiff.min_norm import min_sq_norm, min_abs_norm
+
+diff_options = Literal["pinv", "sq_weight_norm", "abs_weight_norm"]
+class ConvergenceError(Exception):
+    pass
 
 def generate_multi_indices(m):
     """
@@ -67,7 +73,7 @@ def construct_A_matrix(delta_x, delta_y, multi_indices):
 
     return A
 
-def compute_weights(center, points, derivative_order, m, method: str):
+def fin_diff_weights(center, points, derivative_order, m, method: diff_options):
     """
     Compute the finite difference weights for approximating the specified derivative at the center point.
 
@@ -87,8 +93,8 @@ def compute_weights(center, points, derivative_order, m, method: str):
     D = compute_D_vector(multi_indices, derivative_order)  # Shape (M,)
 
     # Step 3: Compute coordinate differences between  points and the center point
-    delta_x = points[:, 0] - center[0] #torch.tensor([x - x0 for x, y in points], dtype=torch.float32)  # Shape (N,)
-    delta_y = points[:, 1] - center[1] #torch.tensor([y - y0 for x, y in points], dtype=torch.float32)  # Shape (N,)
+    deltas = points - center
+    delta_x, delta_y = deltas[:, 0], deltas[:, 1]  # Shape (N,)
 
     # Step 4: Construct the matrix A by evaluating monomials at the coordinate differences
     A = construct_A_matrix(delta_x, delta_y, multi_indices)  # Shape (N, M)
@@ -96,29 +102,28 @@ def compute_weights(center, points, derivative_order, m, method: str):
 
     # Step 5: Solve the linear system A_T w = D.
     # Step 5.1: Optionally weight magnitude of w, for underdetermined system / extra points.
-    weights = (torch.norm(points, dim=1) ** 3)
+    weights = torch.norm(deltas, dim=1) ** 3
+    # print(f'{weights = }')
     if method=="pinv":
         A_T_pinv = torch.linalg.pinv(A_T)  # Compute the pseudoinverse of A_T
         w = A_T_pinv @ D  # Compute the weights w (Shape: (N,))
+        status = None
     elif method=="sq_weight_norm":
-        w = min_sq_norm(A_T, weights, D)
+        w, status = min_sq_norm(A_T, weights, D)
     elif method == "abs_weight_norm":
-        w = min_abs_norm(A_T, D, weights)
+        w, status = min_abs_norm(A_T, D, weights)
     else:
         exit("Method not implemented")
 
     err = torch.norm(A_T @ w - D)
     if err > 1e-4:
-        raise ValueError(f'Error too large: {err = }')
-    print(f'{err = }')
+        raise ConvergenceError(f'Error too large: {err = }')
 
     sq_res = w.unsqueeze(0) @ torch.diag(weights) @ w
     abs_res = w.abs() @ weights
 
-    print(f'{sq_res = }')
-    print(f'{abs_res = }')
 
-    return w
+    return w, {'err': err, 'status': status, 'sq_res': sq_res, 'abs_res': abs_res}
 
 
 def main(center, points, derivative_order, m):
@@ -128,7 +133,7 @@ def main(center, points, derivative_order, m):
     center = torch.tensor(center, dtype=torch.float32)  # Center point
 
     # Compute the finite difference weights
-    weights = compute_weights(center, points, derivative_order, m, method="abs_weight_norm")
+    weights, _ = fin_diff_weights(center, points, derivative_order, m, method="abs_weight_norm")
 
     # Display the computed weights
     print()
@@ -142,16 +147,16 @@ if __name__ == "__main__":
     x0, y0 = 0.0, 0.0  # Center point
 
     # Define the coordinates of points
-    points = [(-1, 1), (0, 1), (1, 1),
+    points = [#(-1, 1), (0, 1), (1, 1),
               (-2, 0), (-1, 0), (0, 0), (1, 0), (2, 0),
-              (-1, -1), (0, -1), (1, -1)
+              #(-1, -1), (0, -1), (1, -1)
               ]  # List of (x, y) tuples
 
     # Specify the derivative order to approximate (e.g., first derivative with respect to x)
     derivative_order = (1,0)  # (k_x, k_y)
 
     # Set the maximum total degree of the monomials (order of accuracy)
-    m = 1   # Should be at least the sum of the derivative orders
+    m = 4   # Should be at least the sum of the derivative orders
 
     # Compute the finite difference weights
     main((x0, y0), points, derivative_order, m)

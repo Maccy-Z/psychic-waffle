@@ -42,7 +42,7 @@ def min_sq_norm(A, c, b):
     :param A: Matrix (N, M)
     :param c: Vector (N)
     :param b: Vector (M)
-    :return: x: Vector (N)
+    :return: x: Vector (N), status: str
 
     In general x = A+ b + (I - A+ A)z, where A+ is the pseudo-inverse of A.
     Find Z first, then use for x
@@ -53,8 +53,7 @@ def min_sq_norm(A, c, b):
     A_pinv = torch.linalg.pinv(A, atol=1e-5)       # Shape = (M, N)
     # If A_pinv A is identity, return min norm solution
     if torch.allclose(A_pinv @ A, torch.eye(A.shape[1]), atol=1e-5):
-        print("A_pinv A is identity")
-        return A_pinv @ b
+        return A_pinv @ b, "A_pinv A is identity"
 
     C = torch.diag(c)
     b = b.view(-1, 1)
@@ -83,12 +82,20 @@ def min_sq_norm(A, c, b):
     # A_C_inv_A_T_inv = torch.linalg.pinv(A_C_inv_A_T)
     # x = C_inv_A_T @ A_C_inv_A_T_inv @ b
 
-    return x.squeeze()
-
+    return x.squeeze(), "Normal"
 
 def min_abs_norm(A, b ,c):
-    """ Solve min c^T |x| s.t. Ax = b """
+    """ Solve min c^T |x| s.t. Ax = b.
+        Equivalent to linear programming in 2N variables.
+        Return: x: Vector (N), status: str
+     """
     from scipy.optimize import linprog
+
+    # If A_pinv A is identity, return min norm solution
+    A_pinv_A = torch.linalg.lstsq(A, A).solution
+    if torch.allclose(A_pinv_A, torch.eye(A.shape[1]), atol=1e-5):
+        A_pinv = torch.linalg.pinv(A, atol=1e-5)
+        return A_pinv @ b, "A_pinv A is identity"
 
     b_torch = b
     A, b, c = A.numpy(), b.numpy(), c.numpy()
@@ -116,7 +123,7 @@ def min_abs_norm(A, b ,c):
 
     # Extract solution
     x = result.x[:n]
-    return torch.tensor(x, dtype=b_torch.dtype, device=b_torch.device)
+    return torch.tensor(x, dtype=b_torch.dtype, device=b_torch.device), "Normal"
 
 if __name__ == "__main__":
     A = torch.tensor([[1., 2, 4], [2, 5, 6]])  # Your matrix A
