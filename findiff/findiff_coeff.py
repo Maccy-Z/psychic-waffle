@@ -101,9 +101,10 @@ def fin_diff_weights(center, points, derivative_order, m, method: diff_options):
     A_T = A.T  # Transpose to shape (M, N) for the linear system
 
     # Step 5: Solve the linear system A_T w = D.
-    # Step 5.1: Optionally weight magnitude of w, for underdetermined system / extra points.
-    weights = torch.norm(deltas, dim=1) ** 3
-    # print(f'{weights = }')
+    # Step 5.1: Weight magnitude of w, for underdetermined system / extra points. (Error formula)
+    weights = torch.norm(deltas, p=2, dim=1) ** (m + 2)     # TODO: Why 2 better than 1?
+
+    print(f'{weights = }')
     if method=="pinv":
         A_T_pinv = torch.linalg.pinv(A_T)  # Compute the pseudoinverse of A_T
         w = A_T_pinv @ D  # Compute the weights w (Shape: (N,))
@@ -133,30 +134,38 @@ def main(center, points, derivative_order, m):
     center = torch.tensor(center, dtype=torch.float32)  # Center point
 
     # Compute the finite difference weights
-    weights, _ = fin_diff_weights(center, points, derivative_order, m, method="abs_weight_norm")
+    weights, status = fin_diff_weights(center, points, derivative_order, m, method="pinv")
 
     # Display the computed weights
     print()
+    print(status['sq_res'], status['abs_res'])
     for w, p in zip(weights, points):
-        print(f"{p.tolist()}: {w:.4f}")
+        print(f"{p.tolist()}: {w:.3f}")
 
 
 # Example usage
 if __name__ == "__main__":
+    import numpy as np
     # Define the center point coordinates
     x0, y0 = 0.0, 0.0  # Center point
 
     # Define the coordinates of points
     points = [#(-1, 1), (0, 1), (1, 1),
-              (-2, 0), (-1, 0), (0, 0), (1, 0), (2, 0),
+              #(-2, 0), (-1, 0), (0, 0), (1, 0), (2, 0),
               #(-1, -1), (0, -1), (1, -1)
               ]  # List of (x, y) tuples
+
+    theta = np.pi * 0.4
+    points = [(0, 0), (0, 1), (np.cos(theta), np.sin(theta))]  # List of (x, y) tuples
 
     # Specify the derivative order to approximate (e.g., first derivative with respect to x)
     derivative_order = (1,0)  # (k_x, k_y)
 
     # Set the maximum total degree of the monomials (order of accuracy)
-    m = 4   # Should be at least the sum of the derivative orders
+    m = 1   # Should be at least the sum of the derivative orders
 
     # Compute the finite difference weights
     main((x0, y0), points, derivative_order, m)
+    from matplotlib import pyplot as plt
+    plt.scatter(*zip(*points))
+    plt.show()

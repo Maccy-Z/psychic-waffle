@@ -28,6 +28,7 @@ class UGraph:
         data.edge_coeff = fd_weights.unsqueeze(-1)                               # [N_edges]
         data.Xs = Xs
 
+
         self.data = data
         self.Xs = Xs
         self.neighbors = neighbors
@@ -38,7 +39,7 @@ class UGraph:
         """ Calculate neighbours and finite difference coefficients """
         kdtree = KDTree(Xs)
         diff_acc = 2
-        diff_order = (1, 0)
+        diff_order = (2, 0)
 
         weights, neighbors = [], []
         resids = []
@@ -108,9 +109,12 @@ class UGraph:
 
 def test_fn(Xs):
     x, y = Xs[:, 0], Xs[:, 1]
-    u = x ** 2 + y ** 2 + x
+    u = x ** 3  + y ** 3 + x + y
     return u
-
+def grad_fn(Xs):
+    x, y = Xs[:, 0], Xs[:, 1]
+    grad_x = 6 * x
+    return grad_x
 
 def main():
     from graph_utils import show_graph
@@ -145,16 +149,16 @@ def main():
 
     grads = grads.squeeze()
     Xs = u_graph.data.Xs
-    for g, X in zip(grads, Xs):
+    grad_true = grad_fn(Xs)
+    for g, X, g_true in zip(grads, Xs, grad_true):
         x = X[0].item()
-        print(f'{x = :.3g}, {g = }')
+        g = g.item()
+        print(f'{x = :.3g}, {g = :.3g}, {g_true = :.4g}')
 
-    # nodes = [0, 22, 27]
-    # for i in range(3):
-    #     idxs = edge_index[:, i]
-    #     print(f'{idxs.tolist()}, {edge_coeff[i].item() :.3g}, {Xs[idxs[1]][0]:.3g}')
-    #
-    # print(f'{grads = }')
+    error = torch.abs(grads - grad_true).mean()
+    print()
+
+    print(f'{error = }')
 
 
 

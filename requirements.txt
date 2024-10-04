@@ -4,8 +4,9 @@ scipy
 codetiming
 torch
 cupy
-git+https://github.com/rtqichen/torchdiffeq
 torch
 git+https://github.com/Maccy-Z/c_print.git
 cython
 torch_geometric
+torch_sparse
+torch_scatter
