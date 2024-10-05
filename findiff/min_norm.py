@@ -1,40 +1,11 @@
 import torch
 import numpy as np
 
+
 def print_tensor(tensor, threshold=1e-6):
     x = torch.where(torch.abs(tensor) < threshold, 0, tensor)
     print(x)
 
-def min_norm_solve(A, c, b):
-    """
-    Solve Ax = b with min |c^T x|.
-    :param A: Matrix (N, M)
-    :param c: Vector (N)
-    :param b: Vector (M)
-    :return: x: Vector (N)
-
-    In general x = A+ b + (I - A+ A)z, where A+ is the pseudo-inverse of A.
-    Find Z first, then use for x
-
-    """
-    A_pinv = torch.linalg.pinv(A)       # Shape = (M, N)
-    c = c.view(-1, 1)
-    b = b.view(-1, 1)
-
-    # Let s = c^T A+ b
-    s = c.T @ A_pinv @ b
-
-    # Let w = c^T(I - A+ A)
-    w_T = c.T @ (torch.eye(A.shape[1]) - A_pinv @ A)
-    w = w_T.T
-
-    # z = s (w^T W w)^-1 W
-    z = s / (w.T @ w) * w
-
-    # x = A+ b + (I - A+ A)z
-    x = A_pinv @ b - (torch.eye(A.shape[1]) - A_pinv @ A) @ z
-
-    return x.squeeze()
 
 def min_sq_norm(A, c, b):
     """
@@ -82,7 +53,7 @@ def min_sq_norm(A, c, b):
     # A_C_inv_A_T_inv = torch.linalg.pinv(A_C_inv_A_T)
     # x = C_inv_A_T @ A_C_inv_A_T_inv @ b
 
-    return x.squeeze(), "Normal"
+    return x.squeeze(), "min_sq_norm is Normal"
 
 def min_abs_norm(A, b ,c):
     """ Solve min c^T |x| s.t. Ax = b.
@@ -116,14 +87,17 @@ def min_abs_norm(A, b ,c):
     b_ub = np.zeros(2 * n)
 
     # Variable bounds
-    bounds = [(-np.inf, np.inf)] * n + [(0, np.inf)] * n
+    bounds = [(-2**13, 2**13)] * n + [(0, np.inf)] * n
 
     # Solve LP
     result = linprog(c=obj, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds)
 
     # Extract solution
-    x = result.x[:n]
-    return torch.tensor(x, dtype=b_torch.dtype, device=b_torch.device), "Normal"
+    if result.success:
+        x = result.x[:n]
+        return torch.tensor(x, dtype=torch.float32, device=b_torch.device), "Solver returns Normal"
+    else:
+        raise ValueError("min_abs_norm() solver failed to converge. Try adding more points. ")
 
 if __name__ == "__main__":
     A = torch.tensor([[1., 2, 4], [2, 5, 6]])  # Your matrix A

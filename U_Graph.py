@@ -3,16 +3,16 @@ import torch
 from torch import Tensor
 from scipy.spatial import KDTree
 from torch_geometric.data import Data
+from cprint import c_print
 
 from findiff.findiff_coeff import fin_diff_weights, ConvergenceError
 
 class UGraph:
     """ Holder for graph structure. """
-    data: Data      # PyG holder for graph data.
-    # data.Xs: torch.Tensor   # [N_nodes, 2]                # Coordinates of nodes, CPU only.
-    # data.us: torch.Tensor   # [N_nodes]                   # Value at node
-    # data.edge_index: torch.Tensor   # [2, num_edges]      # Edges between nodes
-    # data.edge_coeff: torch.Tensor  # [num_edges, 1]       # Finite diff coefficients for each edge
+    Xs: torch.Tensor   # [N_nodes, 2]                # Coordinates of nodes, CPU only.
+    us: torch.Tensor   # [N_nodes]                   # Value at node
+    edge_index: torch.Tensor   # [2, num_edges]      # Edges between nodes
+    edge_coeff: torch.Tensor  # [num_edges, 1]       # Finite diff coefficients for each edge
 
     neighbors: list[Tensor]     # [N_nodes, N_neigh]           # Neighborhood for each node
 
@@ -21,15 +21,14 @@ class UGraph:
         """ Initialize the graph with a set of points.
             Xs.shape = [N_nodes, 2]
          """
+        self.N_nodes = Xs.shape[0]
+
         edge_idx, fd_weights, neighbors = self._calc_coeff(Xs)
 
-        data = Data(edge_index=edge_idx,)
-        data.us = test_fn(Xs).unsqueeze(-1) #torch.ones(Xs.shape[0], dtype=torch.float32)     # [N_nodes, 1]
-        data.edge_coeff = fd_weights.unsqueeze(-1)                               # [N_edges]
-        data.Xs = Xs
+        self.edge_idx = edge_idx
+        self.edge_coeff = fd_weights
+        self.us = test_fn(Xs)
 
-
-        self.data = data
         self.Xs = Xs
         self.neighbors = neighbors
         if device == "cuda":
@@ -38,32 +37,50 @@ class UGraph:
     def _calc_coeff(self, Xs):
         """ Calculate neighbours and finite difference coefficients """
         kdtree = KDTree(Xs)
-        diff_acc = 2
+        diff_acc = 3
         diff_order = (2, 0)
 
         weights, neighbors = [], []
-        resids = []
-        for X in Xs:
+        for j, X in enumerate(Xs):
+            if j % 100 == 0:
+                c_print(f'Iteration {j}', color="bright_black")
             # Find the nearest neighbors and calculate coefficients.
             # If the calculation fails (not enough points for given accuracy), increase the number of neighbors until it succeeds.
-            for i in range(25, 100, 5):
+            for i in range(75, 100, 10):
                 try:
                     d, neigh_idx = kdtree.query(X, k=i)
                     neigh_Xs = Xs[neigh_idx]
-                    w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm")
-                except ConvergenceError:
+                    w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=3e-4, eps=1e-7)
+                except ConvergenceError as e:
+                    print(f"{j} Adding more points")
+                    # torch.save(neigh_Xs, 'neigh_Xs.pt')
                     continue
                 else:
-                    resids.append(status['abs_res'])
-                    # Only create edge if weight is not 0
-                    mask = torch.abs(w) > 1e-5
-                    neigh_idx_want = torch.tensor(neigh_idx[mask])
-                    w_want = w[mask]
-                    neighbors.append(neigh_idx_want)
-                    weights.append(w_want)
                     break
             else:
-                raise ConvergenceError(f'Could not find weights for {X}')
+                c_print(f"Using looser tolerance for point {j}, {X=}", color="bright_magenta")
+                torch.save(neigh_Xs, 'neigh_Xs.pt')
+                # print(neigh_Xs)
+                # Using Try again with looser tolerance, probably from fp64 -> fp32 rounding.
+                try:
+                    _, neigh_idx = kdtree.query(X, k=100)
+                    neigh_Xs = Xs[neigh_idx]
+                    w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=1e-3, eps=3e-7)
+                    # c_print(f'{status = }', color='bright_blue')
+                except ConvergenceError as e:
+                    # Unable to find suitable weights.
+                    status, err_msg = e.args
+                    c_print(f'{i = }, {err_msg = }, {status = }', color='bright_magenta')
+
+                    # print(neigh_Xs)
+                    raise ConvergenceError(f'Could not find weights for {X.tolist()}') from None
+
+            # Only create edge if weight is not 0
+            mask = torch.abs(w) > 1e-5
+            neigh_idx_want = torch.tensor(neigh_idx[mask])
+            w_want = w[mask]
+            neighbors.append(neigh_idx_want)
+            weights.append(w_want)
 
         # Construct edge_idx associated of graph.
         source_nodes = torch.cat(neighbors)
@@ -74,31 +91,7 @@ class UGraph:
         # Weights are concatenated.
         weights = torch.cat(weights)
 
-        # resids = torch.stack(resids) * 100
-        # print(f'{resids.mean() = }')
         return edge_idx, weights, neighbors
-
-    def plot(self):
-        """ Plot graph in 2D space with nearest neighbors. """
-        Xs = self.data.Xs
-        # Plot the points
-        plt.figure(figsize=(8, 8))
-        plt.scatter(Xs[:, 0], Xs[:, 1], c='blue', s=100, zorder=2)
-
-        # Draw lines to the nearest neighbors
-        for i, neighbors in enumerate(self.neighbors):
-            for neighbor in neighbors:
-                plt.plot([Xs[i, 0], Xs[neighbor, 0]], [Xs[i, 1], Xs[neighbor, 1]], 'k--', alpha=1 / (2 * i+1))
-            # break
-
-        # Set axis labels and title
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.title(f'Nearest Neighbors for Each Node in 2D Space')
-
-        # Show grid and plot
-        plt.grid(True)
-        plt.show()
 
 
     def _cuda(self):
@@ -109,7 +102,7 @@ class UGraph:
 
 def test_fn(Xs):
     x, y = Xs[:, 0], Xs[:, 1]
-    u = x ** 3  + y ** 3 + x + y
+    u = x**3 + y ** 3 + x + y
     return u
 def grad_fn(Xs):
     x, y = Xs[:, 0], Xs[:, 1]
@@ -132,33 +125,45 @@ def main():
         [0.5, .75],
         [.25, 0.5]
     ])
-    points2 = torch.rand([50, 2]) * 1
+    points2 = torch.rand([10000, 2])
     points = torch.cat((points, points2), dim=0)
+    points = points[points[:, 0].argsort()] * 2
 
     # Number of nearest neighbors to find
     u_graph = UGraph(points, device="cpu")
 
     #u_graph.plot()
-    #show_graph(u_graph.data, value_name='us')
+    #show_graph(u_graph.edge_idx, u_graph.Xs, u_graph.us)
 
-    us = u_graph.data.us
-    edge_index = u_graph.data.edge_index
-    edge_coeff = u_graph.data.edge_coeff
+    us = u_graph.us.unsqueeze(1)
+    edge_idx = u_graph.edge_idx
+    edge_coeff = u_graph.edge_coeff.unsqueeze(1)
     grad_layer = FinDiffGrad()
-    grads = grad_layer(us, edge_index, edge_coeff)
+
+    grads = grad_layer(us, edge_idx, edge_coeff)
 
     grads = grads.squeeze()
-    Xs = u_graph.data.Xs
+    Xs = u_graph.Xs
     grad_true = grad_fn(Xs)
-    for g, X, g_true in zip(grads, Xs, grad_true):
-        x = X[0].item()
-        g = g.item()
-        print(f'{x = :.3g}, {g = :.3g}, {g_true = :.4g}')
 
-    error = torch.abs(grads - grad_true).mean()
+    # for g, X, g_true in zip(grads, Xs, grad_true):
+    #     x = X[0].item()
+    #     g = g.item()
+    #     print(f'{x = :.3g}, {g = :.3g}, {g_true = :.4g}')
+
+    error = torch.abs(grads - grad_true).max().item()
     print()
-
     print(f'{error = }')
+
+    D_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (len(points), len(points))).T
+    D_mat = D_mat.coalesce()
+
+    derivative = torch.sparse.mm(D_mat, us)
+    derivative = derivative.squeeze()
+
+    error_spmm = torch.abs(derivative - grad_true).max().item()
+    print(error_spmm)
+
 
 
 

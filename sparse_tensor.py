@@ -24,8 +24,8 @@ class SparseCSRTransposer:
         csr_temp = torch.sparse_csr_tensor(crow_indices, col_indices, torch.arange(numel, device=device) + 1, csr_matrix.size())
         csr_matrix_T = csr_temp.t().to_sparse_csr()
 
-        self.crow_indices_T = csr_matrix_T.crow_indices()
-        self.col_indices_T = csr_matrix_T.col_indices()
+        self.crow_indices_T = csr_matrix_T.crow_indices().to(torch.int32)
+        self.col_indices_T = csr_matrix_T.col_indices().to(torch.int32)
         self.perm_idx_T = csr_matrix_T.values() - 1
         self.size_T = (csr_matrix.size(1), csr_matrix.size(0))  # Transposed size
 
@@ -58,8 +58,8 @@ class SparseCSRTransposer:
 
 def generate_random_sparse_matrix(rows, cols, density, device="cpu"):
     num_nonzeros = int(rows * cols * density)
-    row_indices = torch.randint(0, rows, (num_nonzeros,), dtype=torch.long)
-    col_indices = torch.randint(0, cols, (num_nonzeros,), dtype=torch.long)
+    row_indices = torch.randint(0, rows, (num_nonzeros,))
+    col_indices = torch.randint(0, cols, (num_nonzeros,))
     values = torch.randn(num_nonzeros)  # Random values for the non-zero entries
 
     edge_index = torch.stack([row_indices, col_indices], dim=0)
@@ -108,9 +108,11 @@ class SparseMatMulOperator:
         Initialize the operator with a sparse CSR matrix A.
         Args: A (torch.sparse_csr_tensor): Sparse CSR matrix of shape (m, n).
         """
-        self.A = A
+        # self.A = A
+        self.A = torch.sparse_csr_tensor(A.crow_indices().to(torch.int32), A.col_indices().to(torch.int32), A.values(), A.size())
         # Compute the transpose once and cache it
-        self.A_T = A.t().to_sparse_csr() # .coalesce_csr()
+        self.A_T = self.A.t().to_sparse_csr() # .coalesce_csr()
+
 
     def matmul(self, b):
         """
@@ -119,6 +121,9 @@ class SparseMatMulOperator:
         Returns: torch.Tensor: Resulting vector of shape (m,).
         """
         return SparseMatMul.apply(self.A, self.A_T, b)
+
+    def __repr__(self):
+        return f"SparseMatMulOperator with tensor: {self.A}"
 
 
 # Example Usage

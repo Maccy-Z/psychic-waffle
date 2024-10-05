@@ -32,9 +32,6 @@ class FinDiffGrad(MessagePassing):
         Returns:
             Tensor: Messages to be aggregated.
         """
-
-        print(f'{x_j[:3] = }')
-        print(f'{edge_coeff[:3] = }')
         return  edge_coeff * x_j
 
 

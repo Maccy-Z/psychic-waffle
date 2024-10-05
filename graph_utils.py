@@ -1,33 +1,56 @@
 import networkx as nx
 import matplotlib.pyplot as plt
-from torch_geometric.data import Data
 from torch_geometric.utils import to_networkx, remove_self_loops
 
-def show_graph(data: Data, value_name='us', pos_name="Xs"):
+def show_graph(edge_idx, Xs, us):
     """
     Plots a graph where the color of each node represents its value from the specified attribute.
     """
-    data_copy = data.clone()
-    data_copy.edge_index = remove_self_loops(data_copy.edge_index)[0]
+    edge_idx = edge_idx.cpu().clone().numpy().T
+    Xs = Xs.cpu().clone().numpy()
+    us = us.cpu().clone().numpy()
 
-    # Convert the PyTorch Geometric Data object to a NetworkX graph
-    G = to_networkx(data_copy, node_attrs=[value_name], edge_attrs=[])
+    # Remove self loops
+    edge_idx = edge_idx[edge_idx[:, 0] != edge_idx[:, 1]]
 
-    # Get node positions from 'pos' attribute (if present)
-    pos = {i: (data_copy[pos_name][i, 0].item(), data_copy[pos_name][i, 1].item()) for i in range(data_copy[pos_name].size(0))}
+    # Create a graph
+    G = nx.Graph()
+    G.add_edges_from(edge_idx)
 
-    # Extract the node values to color the nodes
-    if value_name in data_copy:
-        node_colors = data_copy[value_name].view(-1).tolist()
-    else:
-        raise ValueError(f"Attribute '{value_name}' not found in the graph data.")
+    # Convert positions array to a dictionary for networkx
+    pos_dict = {i: Xs[i] for i in range(Xs.shape[0])}
 
-    # Draw the graph using NetworkX and matplotlib
+    # Draw the graph
     plt.figure(figsize=(8, 6))
-    nx.draw(
-        G, pos, node_color=node_colors, with_labels=True, cmap=plt.cm.viridis,
-        node_size=300, edge_color='gray', linewidths=1, font_size=12
+
+    # Draw nodes with color reflecting their values
+    nx.draw_networkx_nodes(
+        G,
+        pos=pos_dict,
+        node_size=300,
+        nodelist=sorted(G.nodes()),
+        node_color=[us[node] for node in sorted(G.nodes())],
+        cmap=plt.cm.viridis,
     )
-    # Create a ScalarMappable object to add the color bar
-    plt.title("Graph Visualization with Node Colors Representing 'x' Values")
+
+    # Draw edges
+    nx.draw_networkx_edges(
+        G,
+        pos=pos_dict,
+        arrowstyle='-|>',  # Arrow style
+        arrowsize=10,  # Arrow size
+        edge_color='grey',
+        width=1,
+        connectionstyle='arc3,rad=0.1',  # Adds curvature to the edges
+        arrows=True  # Display arrows on the edges
+    )
+
+    # Create labels for nodes with their values
+    labels = {i: f'{i}' for i in range(len(us))}
+    nx.draw_networkx_labels(G, pos=pos_dict, labels=labels)
+
+    # Display the graph
+    #plt.title("Graph Visualization with NumPy Inputs")
+    plt.axis('off')
+    plt.tight_layout()
     plt.show()
