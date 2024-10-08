@@ -1,6 +1,8 @@
 import networkx as nx
 import matplotlib.pyplot as plt
-from torch_geometric.utils import to_networkx, remove_self_loops
+import torch
+from scipy.sparse.csgraph import reverse_cuthill_mckee
+from scipy.sparse import csr_matrix
 
 def show_graph(edge_idx, Xs, us):
     """
@@ -54,3 +56,50 @@ def show_graph(edge_idx, Xs, us):
     plt.axis('off')
     plt.tight_layout()
     plt.show()
+
+
+def gen_perim(width, height, spacing):
+    """
+    Generates a tensor of 2D points representing the perimeter of a rectangle.
+    Parameters:
+    - width: Width of the rectangle.
+    - height: Height of the rectangle.
+    - spacing: Spacing between consecutive points.
+    Returns:
+    - A tensor of shape (N, 2), where N is the number of points, and each row is a 2D point (x, y).
+    """
+    # Create points for the bottom and top sides of the rectangle
+    bottom = torch.stack([torch.arange(0, width, spacing), torch.zeros_like(torch.arange(0, width, spacing))], dim=-1)
+    top = torch.stack([torch.arange(0, width, spacing), torch.full_like(torch.arange(0, width, spacing), height)], dim=-1)
+
+    print(bottom)
+    # Create points for the left and right sides of the rectangle
+    left = torch.stack([torch.zeros_like(torch.arange(0, height, spacing)), torch.arange(0, height, spacing)], dim=-1)
+    right = torch.stack([torch.full_like(torch.arange(0, height+1e-7, spacing), width), torch.arange(0, height+1e-7, spacing)], dim=-1)
+
+    # Remove duplicated corner points
+    left = left[1:] if len(left) > 1 else left  # Remove the bottom-left corner
+    #right = right[1:] if len(right) > 1 else right  # Remove the top-right corner
+
+    # Concatenate all points
+    points = torch.cat([bottom, right, top.flip(0), left.flip(0)], dim=0)
+
+    return points
+
+
+def diag_permute(A_sparse: torch.Tensor):
+    """ Reorder the rows and columns of a matrix using the reverse Cuthill-McKee algorithm.
+        Args:
+        - A (torch.Tensor): Input matrix.
+        Returns:
+        - A_permuted (torch.Tensor): Permuted matrix.
+    """
+    A_sparse = A_sparse.detach().cpu()
+    A_sparse = A_sparse.coalesce()
+
+    A = csr_matrix((A_sparse.values().numpy(), A_sparse.indices().numpy()), shape=A_sparse.size())
+
+    perm = reverse_cuthill_mckee(A)
+
+    return perm
+

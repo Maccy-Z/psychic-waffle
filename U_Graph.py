@@ -1,97 +1,76 @@
-from matplotlib import pyplot as plt
 import torch
 from torch import Tensor
-from scipy.spatial import KDTree
-from torch_geometric.data import Data
 from cprint import c_print
 
-from findiff.findiff_coeff import fin_diff_weights, ConvergenceError
+from graph_store import calc_coeff, Point, P_Boundary, P_Normal, P_Ghost
+from findiff.findiff_coeff import gen_multi_idx_tuple
+
+
+
 
 class UGraph:
     """ Holder for graph structure. """
-    Xs: torch.Tensor   # [N_nodes, 2]                # Coordinates of nodes, CPU only.
-    us: torch.Tensor   # [N_nodes]                   # Value at node
-    edge_index: torch.Tensor   # [2, num_edges]      # Edges between nodes
-    edge_coeff: torch.Tensor  # [num_edges, 1]       # Finite diff coefficients for each edge
+    Xs_dict: dict[int, Point]  # [N_nodes, 2]                # Input properties of nodes.
+    Xs: Tensor   # [N_nodes, 2]                # Coordinates of nodes, CPU only.
+    us: Tensor   # [N_nodes]                   # Value at node
+    pde_mask: Tensor  # [N_nodes]                   # Mask for nodes that need to be updated. Bool
+    grad_mask: Tensor  # [N_nodes]                   # Mask for nodes that need to be updated. Bool
 
-    neighbors: list[Tensor]     # [N_nodes, N_neigh]           # Neighborhood for each node
+    graphs: dict[tuple, ...] # [N_graphs]                  # Gradient graphs for each gradient type.
+        # edge_index: torch.Tensor   # [2, num_edges]      # Edges between nodes
+        # edge_coeff: torch.Tensor  # [num_edges]       # Finite diff coefficients for each edge
+        # neighbors: list[Tensor]     # [N_nodes, N_neigh]           # Neighborhood for each node
 
+    adj_mat: list[Tensor]  # [N_nodes, N_neigh]           # Overall adjacency matrix of all graphs for jacobian calculation.
 
-    def __init__(self, Xs: Tensor, device="cpu"):
+    def __init__(self, Xs_dict: dict[int, Point], grad_acc:int = 2, grad_degree:int = 2, device="cpu"):
         """ Initialize the graph with a set of points.
             Xs.shape = [N_nodes, 2]
          """
-        self.N_nodes = Xs.shape[0]
+        self.Xs_dict = Xs_dict
+        self.N_nodes = len(Xs_dict)
 
-        edge_idx, fd_weights, neighbors = self._calc_coeff(Xs)
+        self.us = torch.tensor([point.value for point in Xs_dict.values()])
+        self.Xs = torch.stack([point.X for point in Xs_dict.values()])
 
-        self.edge_idx = edge_idx
-        self.edge_coeff = fd_weights
-        self.us = test_fn(Xs)
+        # PDE is enforced on normal points.
+        self.pde_mask = torch.tensor([X.point_type == P_Normal for X in Xs_dict.values()])
+        N_pde = self.pde_mask.sum().item()
+        # Points that need u to be updated are either normal or ghost points.
+        self.grad_mask = torch.tensor([X.point_type == P_Ghost or X.point_type == P_Normal for X in Xs_dict.values()])
+        N_grad = self.grad_mask.sum().item()
 
-        self.Xs = Xs
-        self.neighbors = neighbors
+        # Compute finite difference stencils / graphs.
+        # Each gradient type has its own stencil and graph.
+        diff_degrees = gen_multi_idx_tuple(grad_degree)[1:] # 0th order is just itself.
+        # Only need gradients for points that have grad_mask=True.
+        Xs_grad_dict = {i: X for i, X in Xs_dict.items() if self.grad_mask[i]}
+
+        self.graphs = {}
+        for degree in diff_degrees:
+            c_print(f"Generating graph for degree {degree}", color="black")
+            edge_idx, fd_weights, neighbors = calc_coeff(self.Xs, Xs_grad_dict, grad_acc, degree)
+            self.graphs[degree] = [edge_idx, fd_weights, neighbors]
+
+
+        # Create an overall adjacency matrix for jacobian calculation.
+        adj_mat = []
+        for point in range(self.N_nodes):
+            neigh_all = []
+            for _, _, neighs in self.graphs.values():
+                neigh_all.append(neighs.get(point, torch.tensor([])))
+            neigh_all = torch.cat(neigh_all)
+            neigh_unique = torch.unique(neigh_all)
+            adj_mat.append(neigh_unique)
+
+        row_idxs = torch.cat([torch.full_like(col_idx, i) for i, col_idx in enumerate(adj_mat)])
+        col_idxs = torch.cat(adj_mat)
+        idxs = torch.stack([row_idxs, col_idxs], dim=0)
+        values = torch.ones(idxs.shape[1])
+        adj_mat_sp = torch.sparse_coo_tensor(idxs, values, (self.N_nodes, N_grad))
+
         if device == "cuda":
             self._cuda()
-
-    def _calc_coeff(self, Xs):
-        """ Calculate neighbours and finite difference coefficients """
-        kdtree = KDTree(Xs)
-        diff_acc = 3
-        diff_order = (2, 0)
-
-        weights, neighbors = [], []
-        for j, X in enumerate(Xs):
-            if j % 100 == 0:
-                c_print(f'Iteration {j}', color="bright_black")
-            # Find the nearest neighbors and calculate coefficients.
-            # If the calculation fails (not enough points for given accuracy), increase the number of neighbors until it succeeds.
-            for i in range(75, 100, 10):
-                try:
-                    d, neigh_idx = kdtree.query(X, k=i)
-                    neigh_Xs = Xs[neigh_idx]
-                    w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=3e-4, eps=1e-7)
-                except ConvergenceError as e:
-                    print(f"{j} Adding more points")
-                    # torch.save(neigh_Xs, 'neigh_Xs.pt')
-                    continue
-                else:
-                    break
-            else:
-                c_print(f"Using looser tolerance for point {j}, {X=}", color="bright_magenta")
-                torch.save(neigh_Xs, 'neigh_Xs.pt')
-                # print(neigh_Xs)
-                # Using Try again with looser tolerance, probably from fp64 -> fp32 rounding.
-                try:
-                    _, neigh_idx = kdtree.query(X, k=100)
-                    neigh_Xs = Xs[neigh_idx]
-                    w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=1e-3, eps=3e-7)
-                    # c_print(f'{status = }', color='bright_blue')
-                except ConvergenceError as e:
-                    # Unable to find suitable weights.
-                    status, err_msg = e.args
-                    c_print(f'{i = }, {err_msg = }, {status = }', color='bright_magenta')
-
-                    # print(neigh_Xs)
-                    raise ConvergenceError(f'Could not find weights for {X.tolist()}') from None
-
-            # Only create edge if weight is not 0
-            mask = torch.abs(w) > 1e-5
-            neigh_idx_want = torch.tensor(neigh_idx[mask])
-            w_want = w[mask]
-            neighbors.append(neigh_idx_want)
-            weights.append(w_want)
-
-        # Construct edge_idx associated of graph.
-        source_nodes = torch.cat(neighbors)
-        dest_nodes = torch.cat([torch.full((len(dest_nodes),), i, dtype=torch.long)
-                              for i, dest_nodes in enumerate(neighbors)])
-        edge_idx = torch.stack([source_nodes, dest_nodes], dim=0)
-
-        # Weights are concatenated.
-        weights = torch.cat(weights)
-
-        return edge_idx, weights, neighbors
 
 
     def _cuda(self):
@@ -109,31 +88,27 @@ def grad_fn(Xs):
     grad_x = 6 * x
     return grad_x
 
+
 def main():
-    from graph_utils import show_graph
+    from graph_utils import show_graph, gen_perim
     from GNN_FinDiff import FinDiffGrad
 
     torch.set_printoptions(precision=3, sci_mode=False)
     torch.random.manual_seed(2)
-    # Example set of 2D points (shape: [num_nodes, 2])
-    points = torch.tensor([
-        [0.0, 0.0],
-        [1.0, 0.0],
-        [0.0, 1.0],
-        [1.0, 1.0],
-        [0.5, 0.5],
-        [0.5, .75],
-        [.25, 0.5]
-    ])
-    points2 = torch.rand([10000, 2])
-    points = torch.cat((points, points2), dim=0)
-    points = points[points[:, 0].argsort()] * 2
+
+    points_bc = gen_perim(1, 1, 0.2)
+    points_bc = [Point(X, P_Boundary, 0.) for X in points_bc]
+    points_main = torch.rand([50, 2])
+    points_main = [Point(X, P_Normal, 0.) for X in points_main]
+
+    points_all = points_bc + points_main
+    points_all = sorted(points_all, key=lambda x: x.X[0])
+    points_dict = {i: X for i, X in enumerate(points_all)}
 
     # Number of nearest neighbors to find
-    u_graph = UGraph(points, device="cpu")
+    u_graph = UGraph(points_dict, device="cpu")
 
-    #u_graph.plot()
-    #show_graph(u_graph.edge_idx, u_graph.Xs, u_graph.us)
+    show_graph(u_graph.graphs[(1, 0)][0], u_graph.Xs, u_graph.pde_mask)
 
     us = u_graph.us.unsqueeze(1)
     edge_idx = u_graph.edge_idx
@@ -151,18 +126,18 @@ def main():
     #     g = g.item()
     #     print(f'{x = :.3g}, {g = :.3g}, {g_true = :.4g}')
 
-    error = torch.abs(grads - grad_true).max().item()
-    print()
-    print(f'{error = }')
-
-    D_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (len(points), len(points))).T
-    D_mat = D_mat.coalesce()
-
-    derivative = torch.sparse.mm(D_mat, us)
-    derivative = derivative.squeeze()
-
-    error_spmm = torch.abs(derivative - grad_true).max().item()
-    print(error_spmm)
+    # error = torch.abs(grads - grad_true).max().item()
+    # print()
+    # print(f'{error = }')
+    #
+    # D_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (len(points), len(points))).T
+    # D_mat = D_mat.coalesce()
+    #
+    # derivative = torch.sparse.mm(D_mat, us)
+    # derivative = derivative.squeeze()
+    #
+    # error_spmm = torch.abs(derivative - grad_true).max().item()
+    # print(error_spmm)
 
 
 

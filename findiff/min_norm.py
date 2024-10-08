@@ -85,7 +85,6 @@ def min_abs_norm(A, b ,c):
         np.hstack((np.eye(n), -np.eye(n)))
     ))
     b_ub = np.zeros(2 * n)
-
     # Variable bounds
     bounds = [(-2**13, 2**13)] * n + [(0, np.inf)] * n
 
