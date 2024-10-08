@@ -14,16 +14,16 @@ P_dict = {P_Normal: "Normal", P_Boundary: "Boundary", P_Ghost: "Ghost"}
 
 @dataclass
 class Point:
-    def __init__(self, X: torch.Tensor, point_type: int, value=None, direction: str=None):
-        """
-        Value:  If normal, value = initial value. Standard PDE enforced on this point.
-                If boundary, value = boundary value. Dirichlet BC enforced on this point.
-                If ghost, value = derivative value. Direction is direction of normal derivative boundary. Neuman BCs enforced on this point.
-        """
-        self.point_type = point_type
-        self.X = X
-        self.value = value
-        self.direction = direction
+    point_type: int
+    X: torch.Tensor
+    value: float
+    direction: str = None
+
+    """
+    Value:  If normal, value = initial value. Standard PDE enforced on this point.
+            If boundary, value = boundary value. Dirichlet BC enforced on this point.
+            If ghost, value = derivative value. Direction is direction of normal derivative boundary. Neuman BCs enforced on this point.
+    """
 
     def __repr__(self):
         if self.value is None:
@@ -31,8 +31,18 @@ class Point:
         else:
             return f'\033[33mPoint:\n     X={self.X}, \n     Type={P_dict[self.point_type]}, \n     Value={self.value})\n\033[0m'
 
+@dataclass
+class DerivGraph:
+    edge_idx: torch.Tensor
+    weights: torch.Tensor
+    neighbors: dict[int, torch.Tensor]
 
-def calc_coeff(Xs_all: torch.Tensor, point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[int, int]):
+    def cuda(self):
+        self.edge_idx.cuda(non_blocking=True)
+        self.weights.cuda(non_blocking=True)
+
+
+def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[int, int]):
     """ Calculate neighbours and finite difference coefficients
     Xs_all: torch.Tensor [N_nodes, 2]. All nodes in the graph.
     point_dict: dict[int, Point]. Dictionary of points where gradients are calculated
@@ -40,18 +50,22 @@ def calc_coeff(Xs_all: torch.Tensor, point_dict: dict[int, Point], diff_acc: int
     diff_acc: int
     diff_order: Tuple[int, int]
     """
-    N_nodes = len(Xs_all)
+    want_type = {P_Normal, P_Ghost}
+    Xs_all = torch.stack([point.X for point in point_dict.values()])
+    N_nodes = len(point_dict)
     kdtree = KDTree(Xs_all)
 
+    pde_dict = {idx: point for idx, point in point_dict.items() if point.point_type in want_type}
+
     edge_idxs, weights, neighbors = [], [], {}
-    for j, point in point_dict.items():
+    for j, point in pde_dict.items():
         X = point.X
         if j % 100 == 0:
             c_print(f'Iteration {j}', color="bright_black")
         # Find the nearest neighbors and calculate coefficients.
         # If the calculation fails (not enough points for given accuracy), increase the number of neighbors until it succeeds.
         min_points = min(75, N_nodes)
-        max_points = min(100, N_nodes + 1)
+        max_points = min(150, N_nodes + 1)
         for i in range(min_points, max_points, 10):
             try:
                 d, neigh_idx = kdtree.query(X, k=i)
@@ -83,7 +97,6 @@ def calc_coeff(Xs_all: torch.Tensor, point_dict: dict[int, Point], diff_acc: int
         source_nodes = torch.full((len(neigh_idx_want),), j, dtype=torch.long)
         edge_idx = torch.stack([source_nodes, neigh_idx_want], dim=0)
         w_want = w[mask]
-
         edge_idxs.append(edge_idx)
         neighbors[j] = neigh_idx_want
         weights.append(w_want)

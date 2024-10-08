@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import torch
 from scipy.sparse.csgraph import reverse_cuthill_mckee
 from scipy.sparse import csr_matrix
+import numpy as np
 
 def show_graph(edge_idx, Xs, us):
     """
@@ -72,7 +73,6 @@ def gen_perim(width, height, spacing):
     bottom = torch.stack([torch.arange(0, width, spacing), torch.zeros_like(torch.arange(0, width, spacing))], dim=-1)
     top = torch.stack([torch.arange(0, width, spacing), torch.full_like(torch.arange(0, width, spacing), height)], dim=-1)
 
-    print(bottom)
     # Create points for the left and right sides of the rectangle
     left = torch.stack([torch.zeros_like(torch.arange(0, height, spacing)), torch.arange(0, height, spacing)], dim=-1)
     right = torch.stack([torch.full_like(torch.arange(0, height+1e-7, spacing), width), torch.arange(0, height+1e-7, spacing)], dim=-1)
@@ -88,7 +88,7 @@ def gen_perim(width, height, spacing):
 
 
 def diag_permute(A_sparse: torch.Tensor):
-    """ Reorder the rows and columns of a matrix using the reverse Cuthill-McKee algorithm.
+    """ Reorder the rows and columns of a matrix to be as diagonal as possible using the reverse Cuthill-McKee algorithm.
         Args:
         - A (torch.Tensor): Input matrix.
         Returns:
@@ -103,3 +103,32 @@ def diag_permute(A_sparse: torch.Tensor):
 
     return perm
 
+def plot_sparsity(A, title=""):
+
+    import torch
+    import matplotlib.pyplot as plt
+
+    # Example: Create a sample sparse matrix in PyTorch
+
+    matrix = A.to_dense().detach().cpu()
+    binary_matrix = (matrix != 0).int().numpy()  # Convert to binary and then to numpy array
+
+    # Create the plot using imshow
+    plt.figure(figsize=(6, 6))
+    plt.imshow(binary_matrix, cmap='Greys', interpolation='nearest')  # 'Greys' colormap for binary data
+
+    # Set x and y ticks to show integer labels
+    num_rows, num_cols = binary_matrix.shape
+    plt.xticks(np.arange(0, num_cols, step=1))  # Show column indices as integers
+    plt.yticks(np.arange(0, num_rows, step=1))  # Show row indices as integers
+
+    # Set labels and title
+    plt.xlabel("Column Index")
+    plt.ylabel("Row Index")
+    plt.title(title)
+
+    # Display grid lines for clarity
+    plt.grid(True, which='both', color='lightgrey', linewidth=0.5)
+
+    # Show the plot
+    plt.show()
