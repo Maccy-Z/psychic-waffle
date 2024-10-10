@@ -3,7 +3,7 @@ import logging
 import torch
 
 from pde.config import FwdConfig
-from pde.U_grid import UGrid
+from pde.cartesian_grid.U_grid import UGrid
 from pde.pdes.PDE_utils import PDEForward
 from pde.solvers.jacobian import JacobCalc
 from pde.solvers.linear_solvers import LinearSolver

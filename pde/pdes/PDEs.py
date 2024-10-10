@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from pde.config import Config
 from pde.utils import show_grid
-from pde.X_grid import XGrid2D
+from pde.cartesian_grid.X_grid import XGrid2D
 
 class PDEFunc(torch.nn.Module, ABC):
     def __init__(self, cfg: Config, device='cpu'):

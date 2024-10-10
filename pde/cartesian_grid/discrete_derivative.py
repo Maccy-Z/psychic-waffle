@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
-from X_grid import XGrid
+from pde.cartesian_grid.X_grid import XGrid
 import abc
 
 

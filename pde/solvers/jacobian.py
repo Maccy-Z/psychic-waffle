@@ -1,7 +1,8 @@
 import torch
-from pde.U_grid import UGrid, USplitGrid, UNormalGrid
+from pde.cartesian_grid.U_grid import UGrid, USplitGrid, UNormalGrid
 from pde.pdes.PDE_utils import PDEForward
-from pde.utils import get_split_indices, clamp, show_grid
+from pde.utils import get_split_indices, clamp
+
 
 def get_jac_calc(us_grid: UGrid, pde_forward: PDEForward, cfg):
     if cfg.jac_mode == "dense":
@@ -69,9 +70,9 @@ class SplitJacobCalc(JacobCalc):
         # Indices of non-zero elements in pde_mask and us_grad_mask
         pde_true_idx, us_grad_idx = self.sol_grid.mask_nonzero_idx()
 
-        for xmin, xmax in self.split_idxs:
+        for xmin, xmax in self.split_idxs:      # (pde_min, pde_max)
             # Diagonal blocks of Jacobian
-            ymin = clamp(xmin - self.us_stride, 0, jacob_shape)
+            ymin = clamp(xmin - self.us_stride, 0, jacob_shape)         # (us_min, us_max)
             ymax = clamp(xmin + self.block_size + self.us_stride, 0, jacob_shape)
 
             pde_slice = slice(xmin, xmax)
@@ -104,8 +105,8 @@ class SplitJacobCalc(JacobCalc):
             jacobian[pde_slice, us_slice] = jacob
             residuals[pde_slice] = resid.flatten()
 
+            #show_grid(jacobian, title=f'{xmin=}, {xmax=}')
 
-        #jacobian = jacobian.to_sparse_csr()
         return jacobian, residuals
 
 # class SplitJacobCalc(JacobCalc):

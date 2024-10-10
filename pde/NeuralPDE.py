@@ -1,10 +1,8 @@
 import torch
-from cprint import c_print
-import logging
 
-from U_grid import UGridOpen2D
+from pde.cartesian_grid.U_grid import UGridOpen2D
 from pde.solvers.jacobian import get_jac_calc
-from pdes.discrete_derivative import DerivativeCalc2D
+from pde.cartesian_grid.discrete_derivative import DerivativeCalc2D
 from pdes.PDEs import PDEFunc
 from pdes.PDE_utils import PDEForward, PDEAdjoint
 from solvers.linear_solvers import LinearSolver

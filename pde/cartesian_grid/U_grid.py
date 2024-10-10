@@ -1,8 +1,8 @@
 import torch
 from torch import Tensor
 import abc
-from X_grid import XGrid
-from utils import adjust_slice, show_grid
+from pde.cartesian_grid.X_grid import XGrid
+from pde.utils import adjust_slice, show_grid
 
 class UGrid(abc.ABC):
     N_dim: int

@@ -1,11 +1,10 @@
 import torch
 from codetiming import Timer
 import logging
-from cprint import c_print
 
-from pde.pdes.discrete_derivative import DerivativeCalc
-from pde.U_grid import UGrid2D, UGrid, USplitGrid, USubGrid
-from pde.X_grid import XGrid
+from pde.cartesian_grid.discrete_derivative import DerivativeCalc
+from pde.cartesian_grid.U_grid import UGrid, USubGrid
+from pde.cartesian_grid.X_grid import XGrid
 # from pde.solvers.jacobian import JacobCalc
 from .PDEs import PDEFunc
 from pde.loss import Loss

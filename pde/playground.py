@@ -64,5 +64,6 @@ def true_pde():
 if __name__ == "__main__":
     torch.manual_seed(0)
     true_pde()
+    exit("Done")
     fit_model()
 
