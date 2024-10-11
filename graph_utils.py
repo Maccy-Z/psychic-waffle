@@ -104,10 +104,6 @@ def diag_permute(A_sparse: torch.Tensor):
     return perm
 
 def plot_sparsity(A, title=""):
-
-    import torch
-    import matplotlib.pyplot as plt
-
     # Example: Create a sample sparse matrix in PyTorch
 
     matrix = A.to_dense().detach().cpu()

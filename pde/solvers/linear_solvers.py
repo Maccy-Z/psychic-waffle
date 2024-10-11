@@ -102,10 +102,21 @@ class LinearSolver:
         return A
 
     def preproc_sparse(self, A: torch.Tensor):
-        """ Function to convert a torch sparse tensor to a cupy sparse tensor """
-        A_cupy = cp.from_dlpack(A)
-        A_sparse_cupy = sp.csr_matrix(A_cupy)
-        return A_sparse_cupy
+        """ Convert a torch tensor to a cupy sparse tensor """
+        if A.is_sparse_csr:
+            values = A.values()
+            indices = A.col_indices()
+            indptr = A.crow_indices()
+
+            values_cp = cp.from_dlpack(values)
+            indices_cp = cp.from_dlpack(indices)
+            indptr_cp = cp.from_dlpack(indptr)
+
+            A_sparse_cp = sp.csr_matrix((values_cp, indices_cp, indptr_cp), shape=A.size())
+        else:
+            A_cp = cp.from_dlpack(A)
+            A_sparse_cp = sp.csr_matrix(A_cp)
+        return A_sparse_cp
 
 
 

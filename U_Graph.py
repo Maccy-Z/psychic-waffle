@@ -2,9 +2,9 @@ import torch
 from torch import Tensor
 from cprint import c_print
 
-from graph_utils import diag_permute, plot_sparsity, show_graph
+from graph_utils import diag_permute
 from graph_store import calc_coeff, DerivGraph, Point, P_Boundary, P_Normal, P_Ghost
-from findiff.findiff_coeff import gen_multi_idx_tuple
+from old.findiff.findiff_coeff import gen_multi_idx_tuple
 from sparse_tensor import SparseCSRTransposer
 
 
@@ -117,7 +117,6 @@ def grad_fn(Xs):
 
 def main():
     from graph_utils import show_graph, gen_perim
-    from GNN_FinDiff import FinDiffGrad
 
     torch.set_printoptions(precision=3, sci_mode=False)
     torch.random.manual_seed(2)

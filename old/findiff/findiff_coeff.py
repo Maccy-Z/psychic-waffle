@@ -1,10 +1,8 @@
 import torch
 from typing import Literal
 from functools import lru_cache
-from cprint import c_print
-import math
 
-from findiff.min_norm import min_sq_norm, min_abs_norm
+from old.findiff.min_norm import min_sq_norm, min_abs_norm
 
 diff_options = Literal["pinv", "sq_weight_norm", "abs_weight_norm"]
 class ConvergenceError(Exception):
@@ -173,7 +171,6 @@ def main(center, points, derivative_order, m, method: diff_options):
 
 # Example usage
 if __name__ == "__main__":
-    import numpy as np
     torch.set_printoptions(precision=3, sci_mode=False)
     # Define the center point coordinates
     x0, y0 = [0.689, 0.076]  # Center point

@@ -1,10 +1,10 @@
 import torch
 from dataclasses import dataclass
-from graph_utils import gen_perim, show_graph
+from graph_utils import gen_perim
 from scipy.spatial import KDTree
 from cprint import c_print
 
-from findiff.findiff_coeff import fin_diff_weights, ConvergenceError
+from old.findiff.findiff_coeff import fin_diff_weights, ConvergenceError
 
 # Code for point type
 P_Normal = 0
@@ -24,7 +24,6 @@ class Point:
             If boundary, value = boundary value. Dirichlet BC enforced on this point.
             If ghost, value = derivative value. Direction is direction of normal derivative boundary. Neuman BCs enforced on this point.
     """
-
     def __repr__(self):
         if self.value is None:
             return f'\033[33mPoint:\n     X={self.X}, \n     Type={P_dict[self.point_type]})\n\033[0m'
@@ -108,8 +107,6 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
 
 
 def main():
-    from matplotlib import pyplot as plt
-
     torch.set_printoptions(precision=3, sci_mode=False)
     torch.random.manual_seed(2)
     points_bc = gen_perim(1, 1, 0.2)

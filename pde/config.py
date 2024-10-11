@@ -9,7 +9,7 @@ class FwdConfig:
     lin_solve_cfg: dict = None
 
     # Jacobian mode
-    num_blocks: int = 4
+    num_blocks: int = 40
     jac_mode: str = "split"
 
     # Newton Raphson PDE solver settings
@@ -24,20 +24,21 @@ class FwdConfig:
             "config_version": 2,
             "determinism_flag": 0,
             "exception_handling": 1,
+
             "solver": {
                 "monitor_residual": 1,
                 # "print_solve_stats": 1,
-
-                "solver": "BICGSTAB",
+                "solver": "PBICGSTAB",
                 "convergence": "RELATIVE_INI_CORE",
                 "tolerance": 1e-4,
-                "max_iters": 125,
+                "max_iters": 25,
                 # "gmres_n_restart": 75,
                 "preconditioner": {
-                    "solver": "NOSOLVER",
-                    #
-                    # "algorithm": "CLASSICAL",
-                    # "max_iters": 1,
+                    #"solver": "NOSOLVER",
+                    "solver": "AMG",
+                    "algorithm": "AGGREGATION",
+                    "selector": "SIZE_2",
+                    "max_iters": 1,
                     # "cycle": "V",
                     # "max_levels": 5,
 
@@ -68,7 +69,7 @@ class Config:
     # Grid settings
     xmin: float = 0
     xmax: float = 1
-    N: tuple[int] = (25, 25)
+    N: tuple[int] = (400, 400)
 
     # Forward PDE solver config
     fwd_cfg: FwdConfig = field(default_factory=FwdConfig)
