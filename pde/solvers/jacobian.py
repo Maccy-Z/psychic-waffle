@@ -1,14 +1,19 @@
 import torch
-from pde.cartesian_grid.U_grid import UGrid, USplitGrid, UNormalGrid
-from pde.pdes.PDE_utils import PDEForward
-from pde.utils import get_split_indices, clamp, show_grid
+import cupy as cp
 
+from pde.BaseU import UBase
+from pde.cartesian_grid.U_grid import USplitGrid, UNormalGrid
+from pde.cartesian_grid.PDE_Grad import PDEForward
+from pde.utils import get_split_indices, clamp
+from pde.BasePDEGrad import PDEFwdBase
 
-def get_jac_calc(us_grid: UGrid, pde_forward: PDEForward, cfg):
+def get_jac_calc(us_grid: UBase, pde_forward: PDEForward, cfg):
     if cfg.jac_mode == "dense":
         jacob_calc = JacobCalc(us_grid, pde_forward)
     elif cfg.jac_mode == "split":
         jacob_calc = SplitJacobCalc(us_grid, pde_forward, num_blocks=cfg.num_blocks)
+    elif cfg.jac_mode == "sparse":
+        jacob_calc = SparseJacobCalc(us_grid, pde_forward, num_blocks=cfg.num_blocks)
     else:
         raise ValueError(f"Invalid jac_mode {cfg.jac_mode = }. Must be 'dense' or 'split'")
 
@@ -19,7 +24,7 @@ class JacobCalc:
     """
         Calculate Jacobian of PDE.
     """
-    def __init__(self, sol_grid: UGrid, pde_func:PDEForward):
+    def __init__(self, sol_grid: UBase, pde_func:PDEFwdBase):
         self.sol_grid = sol_grid
         self.pde_func = pde_func
 
@@ -29,14 +34,15 @@ class JacobCalc:
         """ Returns Jacobain of function. Return shape: [N_pde, N_us].
             PDEs are indexed by pde_mask and Us are indexed by us_grad_mask. 2D coordinates are stacked into 1D here.
             Columns for each function. Row for each u value.
-
          """
-        us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
-
-        subgrid = UNormalGrid(self.sol_grid, us_grad_mask, pde_mask)
-
-        us_grad = subgrid.get_us_grad()
-        jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
+        # us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
+        #
+        # subgrid = UNormalGrid(self.sol_grid, us_grad_mask, pde_mask)
+        #
+        # us_grad = subgrid.get_us_grad()
+        # jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
+        us_grad = self.sol_grid.get_us_grad()
+        jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, self.sol_grid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
 
         return jacobian, residuals
 
@@ -45,13 +51,13 @@ class SplitJacobCalc(JacobCalc):
     """
         Compute Jacobian in split blocks for efficiency.
     """
-    def __init__(self, sol_grid: UGrid, pde_func:PDEForward, num_blocks: int,):
+    def __init__(self, sol_grid: UBase, pde_func:PDEForward, num_blocks: int,):
         self.sol_grid = sol_grid
         self.pde_func = pde_func
         self.device = sol_grid.device
 
         # Sparsity pattern of Jacobian and splitting. Always fixed
-        self.jacob_shape = self.sol_grid.N_us_train.item()  # == len(torch.nonzero(us_grad_mask))
+        self.jacob_shape = self.sol_grid.N_us_fit  # == len(torch.nonzero(us_grad_mask))
         self.num_blocks = num_blocks
         self.split_idxs = get_split_indices(self.jacob_shape, num_blocks)
         self.block_size = self.jacob_shape // self.num_blocks
@@ -108,23 +114,23 @@ class SplitJacobCalc(JacobCalc):
         return jacobian, residuals
 
 
-class SplitJacobCalc(JacobCalc):
+class SparseJacobCalc(JacobCalc):
     """
         Compute Jacobian in split blocks for efficiency.
     """
-    def __init__(self, sol_grid: UGrid, pde_func:PDEForward, num_blocks: int,):
+    def __init__(self, sol_grid: UBase, pde_func:PDEForward, num_blocks: int,):
         self.sol_grid = sol_grid
         self.pde_func = pde_func
         self.device = sol_grid.device
 
         # Sparsity pattern of Jacobian and splitting. Always fixed
-        self.jacob_shape = self.sol_grid.N_us_train.item()  # == len(torch.nonzero(us_grad_mask))
+        self.jacob_shape = self.sol_grid.N_us_grad  # == len(torch.nonzero(us_grad_mask))
         self.num_blocks = num_blocks
         self.split_idxs = get_split_indices(self.jacob_shape, num_blocks)
         self.block_size = self.jacob_shape // self.num_blocks
         self.us_stride = (self.sol_grid.N[1] + 1).item() # Stride of us in grid. Second element of N is the number of points in x direction. Overestimate.
 
-        self.csr_jac_builder = SparseCSRTensorBuilder(self.jacob_shape, self.jacob_shape, device=self.device)
+        self.csr_jac_builder = CSR_Builder(self.jacob_shape, self.jacob_shape, device=self.device)
 
     def jacobian(self):
         # Build up Jacobian from sections of PDE and us for efficiency.
@@ -133,7 +139,6 @@ class SplitJacobCalc(JacobCalc):
 
         # Rectangular blocks of Jacobian between [xmin, xmax] (pde) and [ymin, ymax] (us)
         # Make new masks for pde and us for each block.
-        #jacobian = torch.zeros((jacob_shape, jacob_shape), device=self.device)
         residuals = torch.zeros(jacob_shape, device=self.device)
 
         # Indices of non-zero elements in pde_mask and us_grad_mask
@@ -179,7 +184,9 @@ class SplitJacobCalc(JacobCalc):
         self.csr_jac_builder.reset()
         return jacobian, residuals
 
-class SparseCSRTensorBuilder:
+
+class CSR_Builder:
+    """ Incrementally build a sparse CSR tensor from dense blocks. """
     def __init__(self, total_rows, total_cols, device=None):
         """
         Initializes the builder for a CSR sparse tensor.
@@ -197,7 +204,6 @@ class SparseCSRTensorBuilder:
 
         # Internal storage for CSR components
         self.nnz_per_row = torch.tensor([0] * self.total_rows, device=self.device, dtype=self.dtype)  # Number of non-zero elements per row
-
         self.col_indices = []                # Column indices of non-zero elements
         self.values = []                     # Non-zero values
 
@@ -211,11 +217,9 @@ class SparseCSRTensorBuilder:
         - block_col_offset: int, the starting column index of the block in the overall matrix.
         """
         n, m = block_dense_values.shape
-
-        block_sparse = block_dense_values.to_sparse_csr()
+        crow_idxs, col_idxs, values = self.to_csr(block_dense_values)
 
         # Count non-zero elements per row in the block
-        crow_idxs = block_sparse.crow_indices()
         counts = crow_idxs[1:] - crow_idxs[:-1]
 
         # Update nnz_per_row for the corresponding global rows
@@ -223,13 +227,12 @@ class SparseCSRTensorBuilder:
         self.nnz_per_row[block_row_offset:block_row_offset + n] += counts
 
         # Calculate global column indices
-        global_cols = block_sparse.col_indices() + block_col_offset
+        global_cols = col_idxs + block_col_offset
         self.col_indices.append(global_cols)
 
         # Extract the non-zero values
-        non_zero_values = block_sparse.values()
+        non_zero_values = values
         self.values.append(non_zero_values)
-
 
     def build(self):
         """
@@ -255,10 +258,19 @@ class SparseCSRTensorBuilder:
             values_tensor,
             size=(self.total_rows, self.total_cols),
         )
-
         return csr_tensor
 
     def reset(self):
         self.nnz_per_row = torch.tensor([0] * self.total_rows, device=self.device, dtype=torch.int32)  # Number of non-zero elements per row
         self.col_indices = []                # Column indices of non-zero elements
         self.values = []                     # Non-zero values
+
+    def to_csr(self, A_torch):
+        """ Cupy is faster than torch """
+        A_cp = cp.asarray(A_torch)
+        A_csr_cp = cp.sparse.csr_matrix(A_cp)
+
+        crow_indices = torch.from_dlpack(A_csr_cp.indptr)
+        col_indices = torch.from_dlpack(A_csr_cp.indices)
+        values = torch.from_dlpack(A_csr_cp.data)
+        return crow_indices, col_indices, values

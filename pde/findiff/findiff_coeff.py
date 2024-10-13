@@ -2,7 +2,7 @@ import torch
 from typing import Literal
 from functools import lru_cache
 
-from old.findiff.min_norm import min_sq_norm, min_abs_norm
+from pde.findiff.min_norm import min_sq_norm, min_abs_norm
 
 diff_options = Literal["pinv", "sq_weight_norm", "abs_weight_norm"]
 class ConvergenceError(Exception):

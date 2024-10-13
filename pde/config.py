@@ -9,8 +9,8 @@ class FwdConfig:
     lin_solve_cfg: dict = None
 
     # Jacobian mode
-    num_blocks: int = 40
-    jac_mode: str = "split"
+    num_blocks: int = 16
+    jac_mode: str = "dense"
 
     # Newton Raphson PDE solver settings
     lin_mode: str = "amgx"
@@ -39,9 +39,8 @@ class FwdConfig:
                     "algorithm": "AGGREGATION",
                     "selector": "SIZE_2",
                     "max_iters": 1,
-                    # "cycle": "V",
+                    "cycle": "V",
                     # "max_levels": 5,
-
                 }
             }
         }
@@ -50,7 +49,7 @@ class FwdConfig:
 class AdjointConfig:
     # Jacobian mode
     num_blocks: int = 4
-    jac_mode: str = "split"
+    jac_mode: str = "dense"
 
     # Linear solver settings
     lin_mode: str = "iterative"
@@ -69,7 +68,7 @@ class Config:
     # Grid settings
     xmin: float = 0
     xmax: float = 1
-    N: tuple[int] = (400, 400)
+    N: tuple[int] = (200, 200)
 
     # Forward PDE solver config
     fwd_cfg: FwdConfig = field(default_factory=FwdConfig)

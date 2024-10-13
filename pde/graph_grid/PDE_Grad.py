@@ -2,33 +2,30 @@ import torch
 from codetiming import Timer
 import logging
 
-from pde.cartesian_grid.discrete_derivative import DerivativeCalc
-from pde.cartesian_grid.U_grid import UGrid, USubGrid
-from pde.cartesian_grid.X_grid import XGrid
-# from pde.solvers.jacobian import JacobCalc
-from .PDEs import PDEFunc
+from pde.graph_grid.U_graph import UGraph
+from pde.pdes.PDEs import PDEFunc
 from pde.loss import Loss
+from pde.findiff.fin_deriv_calc import FinDerivCalc
 
 class PDEForward:
-
-    def __init__(self, u_grid: UGrid, pde_func: PDEFunc, deriv_calc: DerivativeCalc):
+    def __init__(self, u_graph: UGraph, pde_func: PDEFunc, deriv_calc: FinDerivCalc):
         self.pde_func = pde_func
-        self.u_grid = u_grid
+        self.u_graph = u_graph
         self.deriv_calc = deriv_calc
 
-    def residuals(self, us_grad, subgrid: USubGrid):
+    def residuals(self, us_grad, subgrid):
         """
             Returns residuals of equations that require gradients only.
         """
-        us_bc = subgrid.add_nograd_to_us(us_grad)  # Shape = [N+2, N+2]. Need all Us to calculate derivatives.
-        Xs = subgrid.Xs_pde  # Shape = [N+2, N+2, 2]. Only need Xs for residuals.
+        us_all = subgrid.add_nograd_to_us(us_grad)  # Shape = [N_total]. Need all Us to calculate derivatives.
+        Xs = subgrid.Xs_pde  # Shape = [N_total, 2]. Only need Xs for residuals.
 
-        us = us_bc[1:-1, 1:-1].unsqueeze(-1)
-        dudX, d2udX2 = self.deriv_calc.derivative(us_bc)  # shape = [N, ...]. Derivative removes boundary points.
+        us_pde = us_all[subgrid.pde_mask]  # Shape = [N, ...]. Only need Us for residuals.
 
-        us_dus = (us, dudX, d2udX2)
+        grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N, ...]. Derivative removes boundary points.
+        grads_dict[(0, 0)] = us_pde
 
-        residuals = self.pde_func.residuals(us_dus, Xs)
+        residuals = self.pde_func.residuals(grads_dict, Xs)
         resid_grad = residuals[subgrid.pde_mask]
 
         return resid_grad, resid_grad
@@ -46,15 +43,14 @@ class PDEForward:
 
 
 class PDEAdjoint:
-    def __init__(self, u_grid: UGrid, pde_func: PDEFunc, deriv_calc: DerivativeCalc, adj_jacob_calc, adj_lin_solver, loss_fn: Loss):
+    def __init__(self, u_graph: UGraph, pde_func: PDEFunc, adj_jacob_calc, adj_lin_solver, loss_fn: Loss):
         self.pde_func = pde_func
-        self.us_grid = u_grid
-        self.deriv_calc = deriv_calc
+        self.us_grid = u_graph
         self.adj_jacob_calc = adj_jacob_calc
         self.adj_lin_solver = adj_lin_solver
         self.loss_fn = loss_fn
 
-        self.DEVICE = u_grid.device
+        self.DEVICE = u_graph.device
 
     def adjoint_solve(self):
         """ Solve for adjoint.
@@ -103,37 +99,6 @@ class PDEAdjoint:
         residuals = self.pde_func(dUs_flat, Xs_flat)
         residuals.backward(- adjoint)
         return residuals
-
-
-class Loss_fn:
-    def __init__(self, X_grid: XGrid, true_us: torch.Tensor):
-        """
-        :param xs: Positions where loss is taken at
-        :param true_us: Value of us at xs
-        Note: Grid is assumed to be fixed
-
-        Returns: dL(u)/du for adjoint equation
-        """
-
-        self.true_us = true_us  # Shape = [N-2]
-        self.xs = X_grid
-
-    def loss_fn(self, us):
-        loss = torch.sum((us - self.true_us) ** 2)  # Shape = [N-2]
-        return loss
-
-    def general_loss(self, us):
-        us.requires_grad_(True)
-        loss = self.loss_fn(us)
-        loss.backward()
-        return us.grad
-
-    def quad_loss(self, us: torch.Tensor):
-        # Special case for quadratic loss
-        # loss = torch.sum((us - self.true_us)** 2)
-        dL_du = 2 * (us - self.true_us)
-
-        return dL_du
 
 
 def main():

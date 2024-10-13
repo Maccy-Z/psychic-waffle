@@ -16,7 +16,7 @@ class UGrid(abc.ABC):
     grad_mask: Tensor  # Which us have gradient. Shape = [N+2, ...]
     pde_mask: Tensor  # Which PDEs are used to fit us. Automatically disregard extra points. Shape = [N, ...]
     u_mask: tuple[slice, ...]  # Real us points [1:-1, ...]
-    N_us_train: int | Tensor
+    N_us_fit: int | Tensor
 
     pde_true_idx: Tensor
     us_grad_idx: Tensor
@@ -156,9 +156,9 @@ class UGridOpen2D(UGrid2D):
             self.pde_mask[inset_idx] = pde_vals
             self.grad_mask[inset_idx] = grad_vals
 
-        self.N_us_train = self.grad_mask.sum()
-        N_us_train, N_us = self.N_us_train.item(), self.pde_mask.sum().item()
-        assert N_us_train == N_us, f"Need as many equations as unknowns, {N_us_train = } != {N_us = }"
+        self.N_us_fit = self.grad_mask.sum().item()
+        N_us_fit, N_us = self.N_us_fit, self.pde_mask.sum().item()
+        assert N_us_fit == N_us, f"Need as many equations as unknowns, {N_us_fit = } != {N_us = }"
 
         self._fix_bc()
 

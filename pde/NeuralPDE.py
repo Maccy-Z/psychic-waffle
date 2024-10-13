@@ -4,13 +4,12 @@ from pde.cartesian_grid.U_grid import UGridOpen2D
 from pde.solvers.jacobian import get_jac_calc
 from pde.cartesian_grid.discrete_derivative import DerivativeCalc2D
 from pdes.PDEs import PDEFunc
-from pdes.PDE_utils import PDEForward, PDEAdjoint
+from pde.cartesian_grid.PDE_Grad import PDEForward, PDEAdjoint
 from solvers.linear_solvers import LinearSolver
 from solvers.solver_newton import SolverNewton
 from config import Config
-from pde.loss import MSELoss, Loss
+from pde.loss import Loss
 
-torch.set_printoptions(linewidth=150, precision=3)
 
 
 class NeuralPDE:
@@ -18,7 +17,7 @@ class NeuralPDE:
     loss_fn: Loss
     adjoint: torch.Tensor
 
-    def __init__(self, pde_fn: PDEFunc, loss_fn: Loss, cfg: Config):
+    def __init__(self, pde_fn: PDEFunc, grid_setup, loss_fn: Loss, cfg: Config):
         adj_cfg = cfg.adj_cfg
         fwd_cfg = cfg.fwd_cfg
         self.loss_fn = loss_fn
@@ -26,9 +25,9 @@ class NeuralPDE:
         self.DEVICE = cfg.DEVICE
 
         # Grid and BC
-        Xs_grid = pde_fn.Xs_grid
-        dirichlet_bc = pde_fn.dirichlet_bc
-        neuman_bc = pde_fn.neuman_bc
+        Xs_grid = grid_setup.Xs_grid
+        dirichlet_bc = grid_setup.dirichlet_bc
+        neuman_bc = grid_setup.neuman_bc
 
         # PDE classes
         us_grid = UGridOpen2D(Xs_grid, dirichlet_bc=dirichlet_bc, neuman_bc=neuman_bc)

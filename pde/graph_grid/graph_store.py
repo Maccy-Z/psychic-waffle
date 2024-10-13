@@ -1,20 +1,21 @@
 import torch
 from dataclasses import dataclass
-from graph_utils import gen_perim
+from pde.graph_grid.graph_utils import gen_perim
 from scipy.spatial import KDTree
 from cprint import c_print
+from enum import Enum, auto
 
-from old.findiff.findiff_coeff import fin_diff_weights, ConvergenceError
+from pde.findiff.findiff_coeff import fin_diff_weights, ConvergenceError
 
-# Code for point type
-P_Normal = 0
-P_Boundary = 1
-P_Ghost = 2
-P_dict = {P_Normal: "Normal", P_Boundary: "Boundary", P_Ghost: "Ghost"}
+
+class P_Types(Enum):
+    NORMAL = auto()
+    BOUNDARY = auto()
+    GHOST = auto()
 
 @dataclass
 class Point:
-    point_type: int
+    point_type: P_Types
     X: torch.Tensor
     value: float
     direction: str = None
@@ -26,9 +27,9 @@ class Point:
     """
     def __repr__(self):
         if self.value is None:
-            return f'\033[33mPoint:\n     X={self.X}, \n     Type={P_dict[self.point_type]})\n\033[0m'
+            return f'\033[33mPoint:\n     X={self.X}, \n     Type={self.point_type})\n\033[0m'
         else:
-            return f'\033[33mPoint:\n     X={self.X}, \n     Type={P_dict[self.point_type]}, \n     Value={self.value})\n\033[0m'
+            return f'\033[33mPoint:\n     X={self.X}, \n     Type={self.point_type}, \n     Value={self.value})\n\033[0m'
 
 @dataclass
 class DerivGraph:
@@ -49,7 +50,7 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
     diff_acc: int
     diff_order: Tuple[int, int]
     """
-    want_type = {P_Normal, P_Ghost}
+    want_type = {P_Types.NORMAL, P_Types.GHOST}
     Xs_all = torch.stack([point.X for point in point_dict.values()])
     N_nodes = len(point_dict)
     kdtree = KDTree(Xs_all)
@@ -79,7 +80,7 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
             c_print(f"Using looser tolerance for point {j}, {X=}", color="bright_magenta")
             # Using Try again with looser tolerance, probably from fp64 -> fp32 rounding.
             try:
-                _, neigh_idx = kdtree.query(X, k=100)
+                _, neigh_idx = kdtree.query(X, k=min(150, N_nodes))
                 neigh_Xs = Xs_all[neigh_idx]
                 w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=1e-3, eps=3e-7)
             except ConvergenceError as e:
@@ -94,7 +95,7 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
         mask = torch.abs(w) > 1e-5
         neigh_idx_want = torch.tensor(neigh_idx[mask])
         source_nodes = torch.full((len(neigh_idx_want),), j, dtype=torch.long)
-        edge_idx = torch.stack([source_nodes, neigh_idx_want], dim=0)
+        edge_idx = torch.stack([neigh_idx_want, source_nodes], dim=0)
         w_want = w[mask]
         edge_idxs.append(edge_idx)
         neighbors[j] = neigh_idx_want

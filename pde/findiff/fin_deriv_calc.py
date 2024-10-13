@@ -2,24 +2,34 @@ import torch
 from torch_geometric.nn import MessagePassing
 from torch_geometric.data import Data
 
-class FinDiffGrad(MessagePassing):
-    """ Compute Grad^n(u) using finite differences.
+from pde.graph_grid.graph_store import DerivGraph
 
-     """
-    def __init__(self):
+class FinDerivCalc(MessagePassing):
+    """ Compute Grad^n(u) using finite differences. """
+
+    def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask):
+        """ edge_index (dict[tuple, Tensor]): Graph connectivity in COO format with shape [2, E].
+            edge_coeffs (dict[tuple, Tensor]): Finite difference coefficients for each edge."""
         super().__init__(aggr='add')  # Aggregation method can be 'add', 'mean', etc.
 
-    def forward(self, x, edge_index, edge_coeff):
+        self.fd_graphs = fd_graphs
+        self.pde_mask = pde_mask
+
+    def derivative(self, Xs):
+        return self(Xs)
+
+    def forward(self, Xs):
         """
         Args:
             x (Tensor): Node feature matrix of shape [N, F].
-            edge_index (LongTensor): Graph connectivity in COO format with shape [2, E].
-            edge_coeff (Tensor): Edge coefficients of shape [E, 1] or [E, F].
-
-        Returns:
-            Tensor: Gradient for each node of shape [N, F].
         """
-        return self.propagate(edge_index, x=x, edge_coeff=edge_coeff)
+        derivatives = {}
+        for order, graph in self.fd_graphs.items():
+            edge_idx = graph.edge_idx
+            coeff = graph.weights
+
+            derivatives[order] = self.propagate(edge_idx, x=Xs, edge_coeff=coeff.unsqueeze(-1))[self.pde_mask]
+        return derivatives
 
     def message(self, x_j, edge_coeff):
         """
@@ -33,6 +43,30 @@ class FinDiffGrad(MessagePassing):
             Tensor: Messages to be aggregated.
         """
         return  edge_coeff * x_j
+
+class FinDerivCalcSPMV:
+    """ Using sparse matrix-vector multiplication to compute Grad^n(u) using finite differences. """
+    def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask, N_points):
+        self.pde_mask = pde_mask
+
+        self.fd_spm = {}
+        #torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_points, N_points))
+        for order, graph in fd_graphs.items():
+            edge_idx = graph.edge_idx
+            edge_coeff = graph.weights
+            sp_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_points, N_points)).T.coalesce()
+            sp_mat = sp_mat.to_sparse_csr()
+            self.fd_spm[order] = sp_mat
+
+    def derivative(self, Xs):
+        derivatives = {}
+        for order, spm in self.fd_spm.items():
+            derivatives[order] = torch.mv(spm, Xs)[self.pde_mask]
+        return derivatives
+
+
+
+
 
 
 def main():

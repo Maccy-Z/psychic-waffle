@@ -5,6 +5,8 @@ import time
 import logging
 
 from pde.NeuralPDE import NeuralPDE
+from pde.cartesian_grid.cart_grid_setup import grid_setup
+
 from pdes.PDEs import Poisson, LearnedFunc, NNFunc
 from config import Config
 from pde.loss import MSELoss
@@ -51,7 +53,8 @@ def fit_model():
 def true_pde():
     cfg = Config()
     pde_fn = Poisson(cfg, device=cfg.DEVICE)
-    pde_adj = NeuralPDE(pde_fn, None, cfg)
+    pde_grid = grid_setup(cfg)
+    pde_adj = NeuralPDE(pde_fn, pde_grid, None, cfg)
 
     pde_adj.forward_solve()
 
@@ -63,6 +66,8 @@ def true_pde():
 
 if __name__ == "__main__":
     torch.manual_seed(0)
+    torch.set_printoptions(linewidth=150, precision=3)
+
     true_pde()
     exit("Done")
     fit_model()

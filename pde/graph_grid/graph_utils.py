@@ -1,6 +1,9 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 import torch
+from torch import Tensor
+from cprint import c_print
+
 from scipy.sparse.csgraph import reverse_cuthill_mckee
 from scipy.sparse import csr_matrix
 import numpy as np
@@ -54,7 +57,7 @@ def show_graph(edge_idx, Xs, us):
 
     # Display the graph
     #plt.title("Graph Visualization with NumPy Inputs")
-    plt.axis('off')
+    # plt.axis('off')
     plt.tight_layout()
     plt.show()
 
@@ -128,3 +131,31 @@ def plot_sparsity(A, title=""):
 
     # Show the plot
     plt.show()
+
+def test_graph(xmin: float, xmax: float, N: Tensor, device='cpu'):
+    # Establish range of y values from N and dx
+    xmin, xmax = torch.tensor(xmin), torch.tensor(xmax)
+    Lx = xmax - xmin
+    dx = Lx / (N[0] - 1)
+    Ly = dx * (N[1] - 1)
+    L = torch.tensor([Lx, Ly])
+
+    Xmin = torch.stack([xmin, xmin]).to(device)
+    Xmax = torch.stack([xmax, xmin + Ly]).to(device)
+
+    x_values = torch.linspace(Xmin[0], Xmax[0], N[0], device=device)
+    y_values = torch.linspace(Xmin[1], Xmax[1], N[1], device=device)
+
+    # Create the grid of points
+    n_grid, m_grid = torch.meshgrid(y_values, x_values, indexing='xy')
+
+    # Combine the grids to form the final N x M grid of points
+    Xs = torch.stack([m_grid, n_grid], dim=-1).view(-1, 2).to(device)  # shape = [N, 2]
+
+    c_print(f'Grid Range: {Xmin.tolist()} to {Xmax.tolist()}.', 'green')
+    c_print(f'Grid Spacing: {dx:.5g}, grid Shape: {N.tolist()}.', 'green')
+
+    return Xs
+
+
+

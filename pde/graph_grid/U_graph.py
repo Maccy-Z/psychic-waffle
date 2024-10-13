@@ -2,14 +2,14 @@ import torch
 from torch import Tensor
 from cprint import c_print
 
-from graph_utils import diag_permute
-from graph_store import calc_coeff, DerivGraph, Point, P_Boundary, P_Normal, P_Ghost
-from old.findiff.findiff_coeff import gen_multi_idx_tuple
+from pde.BaseU import UBase
+from pde.graph_grid.graph_utils import diag_permute
+from pde.graph_grid.graph_store import calc_coeff, DerivGraph, Point, P_Types
+from pde.findiff.findiff_coeff import gen_multi_idx_tuple
 from sparse_tensor import SparseCSRTransposer
 
 
-
-class UGraph:
+class UGraph(UBase):
     """ Holder for graph structure. """
     setup_dict: dict[int, Point]  # [N_nodes, 2]                # Input properties of nodes.
     Xs: Tensor   # [N_nodes, 2]                # Coordinates of nodes, CPU only.
@@ -22,23 +22,23 @@ class UGraph:
         # edge_coeff: torch.Tensor  # [num_edges]       # Finite diff coefficients for each edge
         # neighbors: list[Tensor]     # [N_nodes, N_neigh]           # Neighborhood for each node
 
-    # adj_mat: list[Tensor]  # [N_nodes, N_neigh]           # Overall adjacency matrix of all graphs for jacobian calculation.
 
-    def __init__(self, setup_dict: dict[int, Point], grad_acc:int = 2, grad_degree:int = 2, device="cpu"):
+    def __init__(self, setup_dict: dict[int, Point], grad_acc:int = 2, max_degree:int = 2, device="cpu"):
         """ Initialize the graph with a set of points.
-            Xs.shape = [N_nodes, 2]
+            setup_dict: dict[node_id, Point]. Dictionary of each type of point
          """
+        self.device = device
         self.N_nodes = len(setup_dict)
 
         # Reorder points by order: P_Normal -> P_Ghost -> P_Boundary. Redefines node values.
-        normal_points = {i: X for i, X in enumerate([P for P in setup_dict.values() if P.point_type == P_Normal]) }
-        ghost_points = {i + len(normal_points): X for i, X in enumerate([P for P in setup_dict.values() if P.point_type == P_Ghost])}
-        boundary_points = {i + len(normal_points) + len(ghost_points): X for i, X in enumerate([P for P in setup_dict.values() if P.point_type == P_Boundary])}
+        normal_points = {i: X for i, X in enumerate([P for P in setup_dict.values() if P.point_type == P_Types.NORMAL]) }
+        ghost_points = {i + len(normal_points): X for i, X in enumerate([P for P in setup_dict.values() if P.point_type == P_Types.GHOST])}
+        boundary_points = {i + len(normal_points) + len(ghost_points): X for i, X in enumerate([P for P in setup_dict.values() if P.point_type == P_Types.BOUNDARY])}
         setup_dict = {**normal_points, **ghost_points, **boundary_points}
 
         # Compute finite difference stencils / graphs.
         # Each gradient type has its own stencil and graph.
-        diff_degrees = gen_multi_idx_tuple(grad_degree)[1:] # 0th order is just itself.
+        diff_degrees = gen_multi_idx_tuple(max_degree)[1:] # 0th order is just itself.
         self.graphs = {}
         for degree in diff_degrees:
             c_print(f"Generating graph for degree {degree}", color="black")
@@ -46,7 +46,7 @@ class UGraph:
             self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
 
         # Create an overall adjacency matrix for jacobian calculation.
-        grad_mask = torch.tensor([X.point_type == P_Ghost or X.point_type == P_Normal for X in setup_dict.values()])
+        grad_mask = torch.tensor([X.point_type == P_Types.GHOST or X.point_type == P_Types.NORMAL for X in setup_dict.values()])
         adj_mat = []
         for point in range(self.N_nodes):
             neigh_all = []
@@ -84,7 +84,7 @@ class UGraph:
         self.Xs = torch.stack([point.X for point in self.setup_dict.values()])
         self.us = torch.tensor([point.value for point in self.setup_dict.values()])
         # PDE is enfoced on normal points.
-        self.pde_mask = torch.tensor([X.point_type == P_Normal for X in self.setup_dict.values()])
+        self.pde_mask = torch.tensor([X.point_type == P_Types.NORMAL for X in self.setup_dict.values()])
         # U requires gradient for normal or ghost points.
         self.grad_mask = grad_mask[permute_idx]
 
@@ -93,9 +93,16 @@ class UGraph:
         adj_mat_dummy = adj_mat_dummy.to_sparse_csr()
         self.transposer = SparseCSRTransposer(adj_mat_dummy)
 
+        self.N_us_grad = self.grad_mask.sum().item()
+        self.N_points = len(normal_points) + len(boundary_points)
+        self.N_tot_points = len(setup_dict)
 
         if device == "cuda":
             self._cuda()
+
+    def split(self, Ns):
+        """ Split grid into subgrids. """
+        pass
 
 
     def _cuda(self):
@@ -106,67 +113,51 @@ class UGraph:
         [graph.cuda() for graph in self.graphs.values()]
 
 def test_fn(Xs):
-    x, y = Xs[:, 0], Xs[:, 1]
-    u = x**3 + y ** 3 + x + y
+    x, y = Xs[0], Xs[1]
+    u = x ** 2
     return u
 def grad_fn(Xs):
-    x, y = Xs[:, 0], Xs[:, 1]
-    grad_x = 6 * x
+    x, y = Xs[0], Xs[1]
+    grad_x = 2 * x
     return grad_x
 
 
 def main():
-    from graph_utils import show_graph, gen_perim
+    from pde.graph_grid.graph_utils import show_graph, gen_perim
+    from pde.findiff.fin_deriv_calc import FinDerivCalc, FinDerivCalcSPMV
 
     torch.set_printoptions(precision=3, sci_mode=False)
     torch.random.manual_seed(2)
 
-    points_bc = gen_perim(1, 1, 0.2)
-    points_bc = [Point(P_Boundary, X, 0.) for X in points_bc]
-    points_main = torch.rand([25, 2])
-    points_main = [Point(P_Normal, X, 0.) for X in points_main]
+    points_bc = gen_perim(1, 1, 0.5)
+    points_bc = [Point(P_Types.BOUNDARY, X, test_fn(X)) for X in points_bc]
+    points_main = torch.rand([5, 2])
+    points_main = [Point(P_Types.NORMAL, X, test_fn(X)) for X in points_main]
 
     points_all = points_main + points_bc
     points_all = sorted(points_all, key=lambda x: x.X[0])
     points_dict = {i: X for i, X in enumerate(points_all)}
 
     # Number of nearest neighbors to find
-    u_graph = UGraph(points_dict, device="cpu")
+    u_graph = UGraph(points_dict, grad_acc=2, max_degree=2, device="cpu")
+    ORDER = (1, 0)
 
-    print(u_graph.graphs[(1, 0)].edge_idx.shape)
-    print(u_graph.edge_idx_jac.shape)
-    show_graph(u_graph.edge_idx_jac, u_graph.Xs, u_graph.pde_mask)
-    show_graph(u_graph.graphs[(1, 0)].edge_idx, u_graph.Xs, u_graph.pde_mask)
+    # show_graph(u_graph.edge_idx_jac, u_graph.Xs, u_graph.pde_mask)
+    show_graph(u_graph.graphs[ORDER].edge_idx, u_graph.Xs, u_graph.us)
 
-    # us = u_graph.us.unsqueeze(1)
-    # edge_idx = u_graph.edge_idx
-    # edge_coeff = u_graph.edge_coeff.unsqueeze(1)
-    # grad_layer = FinDiffGrad()
-    #
-    # grads = grad_layer(us, edge_idx, edge_coeff)
-    #
-    # grads = grads.squeeze()
-    # Xs = u_graph.Xs
-    # grad_true = grad_fn(Xs)
+    deriv_calc = FinDerivCalc(u_graph.graphs, u_graph.pde_mask)
+    grads = deriv_calc.derivative(u_graph.us.unsqueeze(-1))
 
-    # for g, X, g_true in zip(grads, Xs, grad_true):
-    #     x = X[0].item()
-    #     g = g.item()
-    #     print(f'{x = :.3g}, {g = :.3g}, {g_true = :.4g}')
 
-    # error = torch.abs(grads - grad_true).max().item()
-    # print()
-    # print(f'{error = }')
-    #
-    # D_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (len(points), len(points))).T
-    # D_mat = D_mat.coalesce()
-    #
-    # derivative = torch.sparse.mm(D_mat, us)
-    # derivative = derivative.squeeze()
-    #
-    # error_spmm = torch.abs(derivative - grad_true).max().item()
-    # print(error_spmm)
+    """ Using sparse MV """
+    deriv_calc_spmv = FinDerivCalcSPMV(u_graph.graphs, u_graph.pde_mask, u_graph.N_points)
+    grads_spmv = deriv_calc_spmv.derivative(u_graph.us)
 
+    Xs_grad = u_graph.Xs[u_graph.pde_mask]
+    grad_true = torch.tensor([grad_fn(X) for X in Xs_grad])
+    for g, g_true, X, g_spvm in zip(grads[ORDER], grad_true, Xs_grad, grads_spmv[ORDER]):
+        g = g.item()
+        print(f'{X[0] = :.3g}, {g_true = :.4g}, {g = :.4g}, {g_spvm = :.4g}')
 
 
 

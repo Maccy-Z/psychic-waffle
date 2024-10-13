@@ -3,20 +3,20 @@ import logging
 import torch
 
 from pde.config import FwdConfig
-from pde.cartesian_grid.U_grid import UGrid
-from pde.pdes.PDE_utils import PDEForward
+from pde.BaseU import UBase
+from pde.cartesian_grid.PDE_Grad import PDEForward
 from pde.solvers.jacobian import JacobCalc
 from pde.solvers.linear_solvers import LinearSolver
 
 class SolverNewton:
-    def __init__(self, pde_func: PDEForward, sol_grid: UGrid, lin_solver: LinearSolver, jac_calc: JacobCalc, cfg: FwdConfig):
+    def __init__(self, pde_func: PDEForward, sol_grid: UBase, lin_solver: LinearSolver, jac_calc: JacobCalc, cfg: FwdConfig):
         self.pde_func = pde_func
         self.sol_grid = sol_grid
         self.lin_solver = lin_solver
 
         self.N_iter = cfg.N_iter
         self.lr = cfg.lr
-        self.N_points = sol_grid.N.prod()
+        self.N_points = sol_grid.N_points
         self.solve_acc = cfg.acc
 
         self.jac_calc = jac_calc
