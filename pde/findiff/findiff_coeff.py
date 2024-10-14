@@ -1,10 +1,13 @@
 import torch
 from typing import Literal
 from functools import lru_cache
+from scipy.spatial import KDTree
 
 from pde.findiff.min_norm import min_sq_norm, min_abs_norm
+from pde.graph_grid.graph_store import Point, P_Types
 
 diff_options = Literal["pinv", "sq_weight_norm", "abs_weight_norm"]
+
 class ConvergenceError(Exception):
     pass
 
@@ -128,19 +131,6 @@ def fin_diff_weights(center, points, derivative_order, m, method: diff_options, 
     else:
         exit("Method not implemented")
 
-    # Check error from non-solvability, or floating point rounding.
-    # print(A[:6, :6])
-    # print(w)
-    # err_64 = A_T.to(torch.float64) @ w.to(torch.float64) - D.to(torch.float64)
-    #
-    # print(f'{err_64.abs().max().item() = }')
-    #
-    # err_32 = A_T.to(torch.float32) @ w.to(torch.float32) - D.to(torch.float32)
-    # print(f'{err_32.abs().max().item() = }')
-    # #
-    # exit(9)
-    #
-
     err = A_T @ w - D
     max_err = torch.abs(err).max()
     if max_err > atol:
@@ -152,6 +142,68 @@ def fin_diff_weights(center, points, derivative_order, m, method: diff_options, 
 
 
     return w, {'err': err, 'status': status, 'sq_res': sq_res, 'abs_res': abs_res}
+
+def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[int, int]):
+    """ Calculate neighbours and finite difference coefficients
+    Xs_all: torch.Tensor [N_nodes, 2]. All nodes in the graph.
+    point_dict: dict[int, Point]. Dictionary of points where gradients are calculated
+    N_nodes: int
+    diff_acc: int
+    diff_order: Tuple[int, int]
+    """
+    want_type = {P_Types.NORMAL, P_Types.GHOST}
+    Xs_all = torch.stack([point.X for point in point_dict.values()])
+    N_nodes = len(point_dict)
+    kdtree = KDTree(Xs_all)
+
+    pde_dict = {idx: point for idx, point in point_dict.items() if point.point_type in want_type}
+
+    edge_idxs, weights, neighbors = [], [], {}
+    for j, point in pde_dict.items():
+        X = point.X
+        # Find the nearest neighbors and calculate coefficients.
+        # If the calculation fails (not enough points for given accuracy), increase the number of neighbors until it succeeds.
+        min_points = min(75, N_nodes)
+        max_points = min(150, N_nodes + 1)
+        for i in range(min_points, max_points, 10):
+            try:
+                d, neigh_idx = kdtree.query(X, k=i)
+                neigh_Xs = Xs_all[neigh_idx]
+                w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=3e-4, eps=1e-7)
+            except ConvergenceError as e:
+                print(f"{j} Adding more points")
+                continue
+            else:
+                break
+        else:
+            c_print(f"Using looser tolerance for point {j}, {X=}", color="bright_magenta")
+            # Using Try again with looser tolerance, probably from fp64 -> fp32 rounding.
+            try:
+                _, neigh_idx = kdtree.query(X, k=min(150, N_nodes))
+                neigh_Xs = Xs_all[neigh_idx]
+                w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=1e-3, eps=3e-7)
+            except ConvergenceError as e:
+                # Unable to find suitable weights.
+                status, err_msg = e.args
+                c_print(f'{i = }, {err_msg = }, {status = }', color='bright_magenta')
+
+                # print(neigh_Xs)
+                raise ConvergenceError(f'Could not find weights for {X.tolist()}') from None
+
+        # Only create edge if weight is not 0
+        mask = torch.abs(w) > 1e-5
+        neigh_idx_want = torch.tensor(neigh_idx[mask])
+        source_nodes = torch.full((len(neigh_idx_want),), j, dtype=torch.long)
+        edge_idx = torch.stack([neigh_idx_want, source_nodes], dim=0)
+        w_want = w[mask]
+        edge_idxs.append(edge_idx)
+        neighbors[j] = neigh_idx_want
+        weights.append(w_want)
+
+
+    edge_idxs = torch.cat(edge_idxs, dim=1)
+    weights = torch.cat(weights)
+    return edge_idxs, weights, neighbors
 
 
 def main(center, points, derivative_order, m, method: diff_options):

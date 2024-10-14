@@ -1,3 +1,5 @@
+from abc import abstractmethod
+
 import torch
 from torch import Tensor
 import abc
@@ -8,8 +10,8 @@ class UBase(abc.ABC):
     device: torch.device | str
     N_dim: int
     N_points: int  # Number of real points.
-    dirichlet_bc: Tensor
-    neuman_bc: Tensor
+
+    us: Tensor  # Value of u at all points.
 
     grad_mask: Tensor  # Which us have gradient. Shape = [N+2, ...]
     pde_mask: Tensor  # Which PDEs are used to fit us. Automatically disregard extra points. Shape = [N, ...]
@@ -36,7 +38,7 @@ class UBase(abc.ABC):
         us -> us - deltas
         """
         self.us[self.grad_mask] -= deltas
-        self._fix_bc()
+        # self._fix_bc()        # TODO: Fix boundary conditions for graph
 
     def get_real_us_Xs(self):
         """ Return all actual grid points, excluding fake boundaries. """
@@ -65,10 +67,17 @@ class UBase(abc.ABC):
         """ Return us with gradients. """
         return self.us[self.grad_mask]
 
+    def add_nograd_to_us(self, us_grad):
+        """
+        Add points that don't have gradient to us. Used for Jacobian computation.
+        """
 
+        us_all = torch.clone(self.us)
+        us_all[self.grad_mask] = us_grad
+
+        return us_all
+
+
+    @abstractmethod
     def _cuda(self):
-        self.us = self.us.cuda(non_blocking=True)
-        self.Xs = self.Xs.cuda(non_blocking=True)
-        self.dirichlet_bc = self.dirichlet_bc.cuda(non_blocking=True)
-        self.grad_mask = self.grad_mask.cuda(non_blocking=True)
-        self.pde_mask = self.pde_mask.cuda(non_blocking=True)
+        pass

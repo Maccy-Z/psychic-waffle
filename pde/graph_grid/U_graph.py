@@ -4,8 +4,8 @@ from cprint import c_print
 
 from pde.BaseU import UBase
 from pde.graph_grid.graph_utils import diag_permute
-from pde.graph_grid.graph_store import calc_coeff, DerivGraph, Point, P_Types
-from pde.findiff.findiff_coeff import gen_multi_idx_tuple
+from pde.graph_grid.graph_store import DerivGraph, Point, P_Types
+from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from sparse_tensor import SparseCSRTransposer
 
 
@@ -30,13 +30,13 @@ class UGraph(UBase):
         self.device = device
         self.N_nodes = len(setup_dict)
 
-        # Reorder points by order: P_Normal -> P_Ghost -> P_Boundary. Redefines node values.
+        # 1) Reorder points by order: P_Normal -> P_Ghost -> P_Boundary. Redefines node values.
         normal_points = {i: X for i, X in enumerate([P for P in setup_dict.values() if P.point_type == P_Types.NORMAL]) }
         ghost_points = {i + len(normal_points): X for i, X in enumerate([P for P in setup_dict.values() if P.point_type == P_Types.GHOST])}
         boundary_points = {i + len(normal_points) + len(ghost_points): X for i, X in enumerate([P for P in setup_dict.values() if P.point_type == P_Types.BOUNDARY])}
         setup_dict = {**normal_points, **ghost_points, **boundary_points}
 
-        # Compute finite difference stencils / graphs.
+        # 2) Compute finite difference stencils / graphs.
         # Each gradient type has its own stencil and graph.
         diff_degrees = gen_multi_idx_tuple(max_degree)[1:] # 0th order is just itself.
         self.graphs = {}
@@ -45,7 +45,7 @@ class UGraph(UBase):
             edge_idx, fd_weights, neighbors = calc_coeff(setup_dict, grad_acc, degree)
             self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
 
-        # Create an overall adjacency matrix for jacobian calculation.
+        # 3) Create an overall adjacency matrix for jacobian calculation.
         grad_mask = torch.tensor([X.point_type == P_Types.GHOST or X.point_type == P_Types.NORMAL for X in setup_dict.values()])
         adj_mat = []
         for point in range(self.N_nodes):
@@ -65,12 +65,12 @@ class UGraph(UBase):
         dummy_val = torch.ones(edge_idxs.shape[1])
         adj_mat_sp = torch.sparse_coo_tensor(edge_idxs, dummy_val, (self.N_nodes, self.N_nodes))
 
-        # Permute the adjacency matrix to be as diagonal as possible.
+        # 4) Permute the adjacency matrix to be as diagonal as possible.
         permute_idx = diag_permute(adj_mat_sp)
         permute_idx = torch.from_numpy(permute_idx.copy())
 
+        # 4.1) Permute everything to new indices.
         # From here onwards, use permuted indices for everything.
-        # Permute everything to new indices.
         perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
         self.edge_idx_jac = torch.tensor([perm_map[idx.item()] for idx in edge_idxs.flatten()]).reshape(edge_idxs.shape)
         for degree, graph in self.graphs.items():
@@ -88,7 +88,7 @@ class UGraph(UBase):
         # U requires gradient for normal or ghost points.
         self.grad_mask = grad_mask[permute_idx]
 
-        # Precompute matrix transpose
+        # 5) Precompute matrix transpose
         adj_mat_dummy = torch.sparse_coo_tensor(self.edge_idx_jac, torch.empty_like(self.edge_idx_jac[0]), (self.N_nodes, self.N_nodes))
         adj_mat_dummy = adj_mat_dummy.to_sparse_csr()
         self.transposer = SparseCSRTransposer(adj_mat_dummy)

@@ -3,8 +3,9 @@ from torch_geometric.nn import MessagePassing
 from torch_geometric.data import Data
 
 from pde.graph_grid.graph_store import DerivGraph
+from pde.BaseDerivCalc import BaseDerivCalc
 
-class FinDerivCalc(MessagePassing):
+class FinDerivCalc(MessagePassing, BaseDerivCalc):
     """ Compute Grad^n(u) using finite differences. """
 
     def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask):
@@ -15,7 +16,7 @@ class FinDerivCalc(MessagePassing):
         self.fd_graphs = fd_graphs
         self.pde_mask = pde_mask
 
-    def derivative(self, Xs):
+    def derivative(self, Xs) -> dict[tuple, torch.Tensor]:
         return self(Xs)
 
     def forward(self, Xs):
@@ -28,7 +29,7 @@ class FinDerivCalc(MessagePassing):
             edge_idx = graph.edge_idx
             coeff = graph.weights
 
-            derivatives[order] = self.propagate(edge_idx, x=Xs, edge_coeff=coeff.unsqueeze(-1))[self.pde_mask]
+            derivatives[order] = self.propagate(edge_idx, x=Xs.unsqueeze(-1), edge_coeff=coeff.unsqueeze(-1))[self.pde_mask].squeeze()
         return derivatives
 
     def message(self, x_j, edge_coeff):
@@ -44,23 +45,25 @@ class FinDerivCalc(MessagePassing):
         """
         return  edge_coeff * x_j
 
-class FinDerivCalcSPMV:
+class FinDerivCalcSPMV(BaseDerivCalc):
     """ Using sparse matrix-vector multiplication to compute Grad^n(u) using finite differences. """
     def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask, N_points):
         self.pde_mask = pde_mask
 
-        self.fd_spm = {}
+        self._fd_spm = {}
         #torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_points, N_points))
         for order, graph in fd_graphs.items():
             edge_idx = graph.edge_idx
             edge_coeff = graph.weights
             sp_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_points, N_points)).T.coalesce()
-            sp_mat = sp_mat.to_sparse_csr()
-            self.fd_spm[order] = sp_mat
+            #sp_mat = sp_mat.to_sparse_csr()
+            self._fd_spm[order] = sp_mat
 
-    def derivative(self, Xs):
+
+    def derivative(self, Xs) -> dict[tuple, torch.Tensor]:
         derivatives = {}
-        for order, spm in self.fd_spm.items():
+
+        for order, spm in self._fd_spm.items():
             derivatives[order] = torch.mv(spm, Xs)[self.pde_mask]
         return derivatives
 

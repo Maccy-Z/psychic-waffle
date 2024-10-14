@@ -8,13 +8,14 @@ from solvers.linear_solvers import LinearSolver
 from solvers.solver_newton import SolverNewton
 from config import Config
 from pde.loss import Loss
+from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, FinDerivCalc
 
 class NeuralPDEGraph:
     us_graph: UGraph
     loss_fn: Loss
     adjoint: torch.Tensor
 
-    def __init__(self, pde_fn: PDEFunc, u_graph: UGraph, cfg: Config, loss_fn:Loss = None):
+    def __init__(self, pde_fn: PDEFunc, us_graph: UGraph, cfg: Config, loss_fn:Loss = None):
         adj_cfg = cfg.adj_cfg
         fwd_cfg = cfg.fwd_cfg
         self.loss_fn = loss_fn
@@ -22,20 +23,21 @@ class NeuralPDEGraph:
         self.DEVICE = cfg.DEVICE
 
         # PDE classes
-        pde_forward = PDEForward(u_graph, pde_fn)
+        deriv_calc = FinDerivCalc(us_graph.graphs, us_graph.pde_mask)
+        pde_forward = PDEForward(us_graph, pde_fn, deriv_calc)
 
         # Forward solver
         fwd_lin_solver = LinearSolver(fwd_cfg.lin_mode, cfg.DEVICE, cfg=fwd_cfg.lin_solve_cfg)
-        fwd_jacob_calc = get_jac_calc(u_graph, pde_forward, fwd_cfg)
-        newton_solver = SolverNewton(pde_forward, u_graph, fwd_lin_solver, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
+        fwd_jacob_calc = get_jac_calc(us_graph, pde_forward, fwd_cfg)
+        newton_solver = SolverNewton(pde_forward, us_graph, fwd_lin_solver, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
 
         # Adjoint solver
         adj_lin_solver = LinearSolver(adj_cfg.lin_mode, self.DEVICE, adj_cfg.lin_solve_cfg)
-        adj_jacob_calc = get_jac_calc(u_graph, pde_forward, adj_cfg)
-        pde_adjoint = PDEAdjoint(u_graph, pde_fn, adj_jacob_calc, adj_lin_solver, loss_fn)
+        adj_jacob_calc = get_jac_calc(us_graph, pde_forward, adj_cfg)
+        pde_adjoint = PDEAdjoint(us_graph, pde_fn, adj_jacob_calc, adj_lin_solver, loss_fn)
 
         self.pde_fn = pde_fn
-        self.us_graph = u_graph
+        self.us_graph = us_graph
         self.newton_solver = newton_solver
         self.pde_adjoint = pde_adjoint
 
@@ -43,7 +45,7 @@ class NeuralPDEGraph:
         """ Solve PDE forward problem. """
 
         self.newton_solver.find_pde_root()
-        us, _ = self.us_grid.get_real_us_Xs()
+        # us, _ = self.us_graph.get_real_us_Xs()
         # show_grid(us, "Fitted values")
 
     def adjoint_solve(self):

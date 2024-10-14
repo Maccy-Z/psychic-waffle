@@ -13,7 +13,7 @@ class FwdConfig:
     jac_mode: str = "dense"
 
     # Newton Raphson PDE solver settings
-    lin_mode: str = "amgx"
+    lin_mode: str = "dense"
     N_iter: int = 7
     lr: float = 1
     acc: float = 1e-4

@@ -18,17 +18,15 @@ class PDEForward:
             Returns residuals of equations that require gradients only.
         """
         us_all = subgrid.add_nograd_to_us(us_grad)  # Shape = [N_total]. Need all Us to calculate derivatives.
-        Xs = subgrid.Xs_pde  # Shape = [N_total, 2]. Only need Xs for residuals.
+        Xs = subgrid.Xs  # Shape = [N_total, 2]. Only need Xs for residuals.
 
-        us_pde = us_all[subgrid.pde_mask]  # Shape = [N, ...]. Only need Us for residuals.
 
-        grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N, ...]. Derivative removes boundary points.
+        grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
+        us_pde = us_all[subgrid.pde_mask]  # Shape = [N_pde]. Only need Us for residuals.
         grads_dict[(0, 0)] = us_pde
 
         residuals = self.pde_func.residuals(grads_dict, Xs)
-        resid_grad = residuals[subgrid.pde_mask]
-
-        return resid_grad, resid_grad
+        return residuals, residuals
 
     def only_resid(self):
         """ Only returns residuals. Used for tracking solve progress."""

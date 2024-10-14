@@ -42,7 +42,8 @@ class JacobCalc:
         # us_grad = subgrid.get_us_grad()
         # jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
         us_grad = self.sol_grid.get_us_grad()
-        jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, self.sol_grid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
+        jacobian, residuals = torch.func.jacrev(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, self.sol_grid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
+
 
         return jacobian, residuals
 

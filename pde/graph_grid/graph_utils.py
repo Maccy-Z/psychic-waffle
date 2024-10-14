@@ -6,6 +6,7 @@ from cprint import c_print
 
 from scipy.sparse.csgraph import reverse_cuthill_mckee
 from scipy.sparse import csr_matrix
+from scipy.interpolate import griddata
 import numpy as np
 
 def show_graph(edge_idx, Xs, us):
@@ -158,4 +159,46 @@ def test_graph(xmin: float, xmax: float, N: Tensor, device='cpu'):
     return Xs
 
 
+def plot_interp_graph(points, values, resolution=100):
+    # Create a grid over the coordinate space
+    # Convert points and values to numpy arrays if they aren't already
+    points, values = points.detach().cpu().numpy(), values.detach().cpu().numpy()
+
+    # Automatically determine the range for x and y
+    x_min, x_max = points[:, 0].min(), points[:, 0].max()
+    y_min, y_max = points[:, 1].min(), points[:, 1].max()
+
+    # Create a grid based on the ranges of x and y with the specified resolution
+    grid_x, grid_y = np.mgrid[x_min:x_max:complex(resolution), y_min:y_max:complex(resolution)]
+
+    # Interpolate the scalar values using nearest neighbors
+    grid_z = griddata(points, values, (grid_x, grid_y), method='nearest')
+
+    # Plot the interpolated data
+    plt.imshow(grid_z.T, extent=(x_min, x_max, y_min, y_max), origin='lower', cmap='viridis')
+    plt.colorbar()
+
+    # Scatter plot of the original points
+    plt.scatter(points[:, 0], points[:, 1], marker='.')
+
+    # Title and axis labels
+    plt.title(f'Nearest Neighbor Interpolation')
+    plt.xlabel('X')
+    plt.ylabel('Y')
+
+    # Show the plot
+    plt.tight_layout()
+    plt.show()
+
+
+if __name__ == "__main__":
+    # Sample data: list of (x, y) coordinates and their scalar values
+    points = np.array([
+        (0, 0), (1, 0), (1, 1), (0, 1),
+        (0.5, 0.5), (0.75, 0.75), (0.25, 0.25)
+    ])
+    values = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+
+    # Plot the interpolation graph
+    plot_interp_graph(points, values)
 

@@ -32,11 +32,15 @@ class Poisson(PDEFunc):
         self.to(device)
 
     def forward(self, u_dus: dict[tuple, torch.Tensor], Xs: torch.Tensor):
-        u = u_dus[(0, 0)],
+        u = u_dus[(0, 0)]
         dudx, dudy = u_dus[(1, 0)], u_dus[(0, 1)]
         d2udx2, d2udy2 = u_dus[(2, 0)], u_dus[(0, 2)]
 
         resid = 1 * d2udx2 + 1 * d2udy2 + 0 * dudx + 0 * dudy - 5 * u + 5
+
+        # print(u.shape, dudx.shape, d2udx2.shape, resid.shape)
+        # exit(9)
+
         return resid
 
 class LearnedFunc(PDEFunc):
