@@ -12,6 +12,10 @@ class PDEFwdBase(ABC):
         """ Only returns residuals. Used for tracking solve progress."""
         pass
 
+    def jac_block(self, us_grad: torch.Tensor, subgrid):
+        """ Calculate dR/dUs """
+        pass
+
 
 class PDEAdjBase(ABC):  # TODO: Probably doesn't need to be abstract.
     @abstractmethod

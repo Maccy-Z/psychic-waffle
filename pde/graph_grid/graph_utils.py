@@ -107,6 +107,7 @@ def diag_permute(A_sparse: torch.Tensor):
 
     return perm
 
+
 def plot_sparsity(A, title=""):
     # Example: Create a sample sparse matrix in PyTorch
 
@@ -132,6 +133,7 @@ def plot_sparsity(A, title=""):
 
     # Show the plot
     plt.show()
+
 
 def test_graph(xmin: float, xmax: float, N: Tensor, device='cpu'):
     # Establish range of y values from N and dx

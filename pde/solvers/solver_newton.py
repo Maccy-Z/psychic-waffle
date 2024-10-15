@@ -22,7 +22,7 @@ class SolverNewton:
         self.jac_calc = jac_calc
         self.device = sol_grid.device
 
-    @torch.no_grad()
+    #@torch.no_grad()
     def find_pde_root(self):
         """
         Find the root of the PDE using Newton Raphson:

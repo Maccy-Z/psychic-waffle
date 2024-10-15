@@ -23,7 +23,9 @@ class NeuralPDEGraph:
         self.DEVICE = cfg.DEVICE
 
         # PDE classes
-        deriv_calc = FinDerivCalc(us_graph.graphs, us_graph.pde_mask)
+        deriv_calc = FinDerivCalcSPMV(us_graph.graphs, us_graph.pde_mask, us_graph.grad_mask, us_graph.N_points)
+        # deriv_calc = FinDerivCalc(us_graph.graphs, us_graph.pde_mask)
+
         pde_forward = PDEForward(us_graph, pde_fn, deriv_calc)
 
         # Forward solver

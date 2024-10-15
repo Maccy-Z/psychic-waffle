@@ -10,6 +10,7 @@ from pdes.PDEs import Poisson
 
 
 def main():
+    torch.set_printoptions(linewidth=200, precision=3)
     cfg = Config()
 
     Xs_perim = gen_perim(1, 1, 0.1)

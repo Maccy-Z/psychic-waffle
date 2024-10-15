@@ -20,6 +20,8 @@ def gen_multi_idx_tuple(m):
         for alpha_x in range(total_degree + 1):
             alpha_y = total_degree - alpha_x
             indices.append((alpha_x, alpha_y))
+
+    indices = sorted(indices, key=lambda x: (x[0] + x[1], -x[0]))
     return indices
 
 @lru_cache(maxsize=5)

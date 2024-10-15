@@ -19,12 +19,13 @@ class FinDerivCalc(MessagePassing, BaseDerivCalc):
     def derivative(self, Xs) -> dict[tuple, torch.Tensor]:
         return self(Xs)
 
-    def forward(self, Xs):
+    def forward(self, Xs) -> dict[tuple, torch.Tensor]:
         """
         Args:
             x (Tensor): Node feature matrix of shape [N, F].
         """
-        derivatives = {}
+        # Include original node value
+        derivatives = {(0, 0): Xs[self.pde_mask]}
         for order, graph in self.fd_graphs.items():
             edge_idx = graph.edge_idx
             coeff = graph.weights
@@ -47,72 +48,158 @@ class FinDerivCalc(MessagePassing, BaseDerivCalc):
 
 class FinDerivCalcSPMV(BaseDerivCalc):
     """ Using sparse matrix-vector multiplication to compute Grad^n(u) using finite differences. """
-    def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask, N_points):
+    def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask: torch.Tensor, grad_mask: torch.Tensor, N_points):
+        """ Initialise sparse matrices from finite difference graphs.
+            Compute d = A * u [pde_mask]. Compile pde_mask into A.
+            Jacobian is A[pde_mask][us_mask]
+        """
         self.pde_mask = pde_mask
+        self.grad_mask = grad_mask
+        self.device = next(iter(fd_graphs.values())).device
 
-        self._fd_spm = {}
-        #torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_points, N_points))
+        self.fd_spms = {}
+        self.jac_spms = []      # shape = [N_diff], [N_pde, N_points]
+
+        # Order (0, 0) is original node value
+        only_us = torch.eye(N_points, device=self.device).to_sparse_coo()
+        only_us = self.coo_row_select(only_us)
+        only_us = self.coo_col_select(only_us)
+        self.jac_spms.append(only_us)
         for order, graph in fd_graphs.items():
             edge_idx = graph.edge_idx
             edge_coeff = graph.weights
             sp_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_points, N_points)).T.coalesce()
-            #sp_mat = sp_mat.to_sparse_csr()
-            self._fd_spm[order] = sp_mat
+            sp_mat = self.coo_row_select(sp_mat)        # shape = [N_pde, N_points]
+            sp_mat_fwd = sp_mat.to_sparse_csr()
+            self.fd_spms[order] = sp_mat_fwd
+
+            sp_mat_jac = self.coo_col_select(sp_mat)   # shape = [N_pde, N_grad]
+
+            self.jac_spms.append(sp_mat_jac)
 
 
     def derivative(self, Xs) -> dict[tuple, torch.Tensor]:
-        derivatives = {}
+        """ Xs.shape = [N_points]
+            spm.shape = [N_pde, N_points]
+        """
+        derivatives = {(0, 0): Xs[self.pde_mask]}
 
-        for order, spm in self._fd_spm.items():
-            derivatives[order] = torch.mv(spm, Xs)[self.pde_mask]
+        for order, spm in self.fd_spms.items():
+            derivatives[order] = torch.mv(spm, Xs)
         return derivatives
 
+    def jacobian(self) -> list[torch.sparse.FloatTensor]:
+        """ Linear transform, so jacobian is the same as the sparse matrix.
+            return.shape: [N_diff], [N_pde, N_points]
+         """
+        return self.jac_spms
 
+    def coo_row_select(self, sparse_coo: torch.sparse_coo_tensor) -> torch.sparse_coo_tensor:
+        """
+        Selects rows from a COO sparse tensor based on a row-wise mask.
+        Args:
+            sparse_coo (torch.sparse_coo_tensor): The input sparse COO tensor.
+        Returns:
+            torch.sparse_coo_tensor: A new sparse COO tensor with only the selected rows.
+        """
+        # Extract indices and values from the sparse tensor
+        indices = sparse_coo.coalesce().indices()  # Shape: [ndim, nnz]
+        values = sparse_coo.coalesce().values()  # Shape: [nnz]
 
+        # Assume the first dimension corresponds to rows
+        row_indices = indices[0]
 
+        # Create a mask for non-zero elements in the selected rows
+        mask = self.pde_mask[row_indices]
 
+        # Apply the mask to filter indices and values
+        selected_indices = indices[:, mask]
+        selected_values = values[mask]
 
-def main():
-    # Example graph with 5 nodes and 8 original edges
-    N = 5  # Number of nodes
-    E_original = 8  # Number of original edges
+        # Get the selected row numbers in sorted order
+        selected_rows = self.pde_mask.nonzero(as_tuple=False).squeeze()
 
-    # Node features (e.g., scalar values)
-    x = torch.randn(N, 1)  # Shape: [N, F] where F=1
+        # Ensure selected_rows is 1D
+        if selected_rows.dim() == 0:
+            selected_rows = selected_rows.unsqueeze(0)
 
-    # Original edge indices in COO format
-    edge_index_original = torch.tensor([
-        [0, 1, 2, 3, 4, 0, 1, 2],  # Source nodes
-        [1, 2, 3, 4, 0, 2, 3, 4]  # Target nodes
-    ], dtype=torch.long)
+        # Create a mapping from old row indices to new row indices
+        # This ensures that the new tensor has contiguous row indices starting from 0
+        # Example: If rows 1 and 3 are selected, row 1 -> 0 and row 3 -> 1 in the new tensor
+        row_mapping = torch.arange(len(selected_rows), device=selected_rows.device)
+        # Create a dictionary-like mapping using scatter
+        mapping = torch.full((sparse_coo.size(0),), -1, dtype=torch.long, device=selected_rows.device)
+        mapping[selected_rows] = row_mapping
+        # Map the selected row indices
+        new_row_indices = mapping[selected_indices[0]]
 
-    # Original edge coefficients (one coefficient per edge)
-    edge_coeff_original = torch.randn(E_original, 1)  # Shape: [E_original, 1]
+        if (new_row_indices == -1).any():
+            raise RuntimeError("Some row indices were not mapped correctly.")
 
-    # Create self-loop edges
-    self_loops = torch.arange(0, N, dtype=torch.long).unsqueeze(0).repeat(2, 1)  # Shape: [2, N]
-    edge_index_self = self_loops  # Self-loop edges
+        # Replace the row indices with the new row indices
+        new_indices = selected_indices.clone()
+        new_indices[0] = new_row_indices
 
-    # Self-loop coefficients (precomputed weights, typically negative if previously subtracting f_i)
-    # Example: Set self-loop coefficients to -1.0 for simplicity
-    self_loop_coeff = torch.full((N, 1), -1.0)  # Shape: [N, 1]
+        # Define the new size: number of selected rows and the remaining dimensions
+        new_size = [self.pde_mask.sum().item()] + list(sparse_coo.size())[1:]
 
-    # Combine original edges with self-loop edges
-    edge_index = torch.cat([edge_index_original, edge_index_self], dim=1)  # Shape: [2, E_total]
-    edge_coeff = torch.cat([edge_coeff_original, self_loop_coeff], dim=0)  # Shape: [E_total, 1]
+        # Create the new sparse COO tensor
+        new_sparse_coo = torch.sparse_coo_tensor(new_indices, selected_values, size=new_size)
 
-    # Create a PyG Data object
-    data = Data(x=x, edge_index=edge_index, edge_coeff=edge_coeff)
+        return new_sparse_coo
 
-    # Instantiate the gradient layer
-    gradient_layer = FinDiffGrad()
+    def coo_col_select(self, sparse_coo: torch.sparse_coo_tensor) -> torch.sparse_coo_tensor:
+        """
+        Selects columns from a COO sparse tensor based on a column-wise mask.
+        Args:
+            sparse_coo (torch.sparse_coo_tensor): The input sparse COO tensor.
+        Returns:
+            torch.sparse_coo_tensor: A new sparse COO tensor with only the selected columns.
+        """
+        # Extract indices and values from the sparse tensor
+        sparse_coo = sparse_coo.coalesce()  # Ensure indices are coalesced
+        indices = sparse_coo.indices()      # Shape: [ndim, nnz]
+        values = sparse_coo.values()        # Shape: [nnz]
 
-    # Compute the gradient
-    grad = gradient_layer(data.x, data.edge_index, data.edge_coeff)
+        # Assume the second dimension corresponds to columns
+        col_indices = indices[1]
 
-    print("Computed Gradient:")
-    print(grad)
+        # Create a mask for non-zero elements in the selected columns
+        mask = self.grad_mask[col_indices]
 
+        # Apply the mask to filter indices and values
+        selected_indices = indices[:, mask]
+        selected_values = values[mask]
 
-if __name__ == "__main__":
-    main()
+        # Get the selected column numbers in sorted order
+        selected_cols = self.grad_mask.nonzero(as_tuple=False).squeeze()
+
+        # Ensure selected_cols is 1D
+        if selected_cols.dim() == 0:
+            selected_cols = selected_cols.unsqueeze(0)
+
+        # Create a mapping from old column indices to new column indices
+        # This ensures that the new tensor has contiguous column indices starting from 0
+        row_mapping = torch.arange(len(selected_cols), device=selected_cols.device)
+        # Initialize a mapping tensor with -1 (invalid)
+        mapping = torch.full((sparse_coo.size(1),), -1, dtype=torch.long, device=selected_cols.device)
+        # Assign new indices to the selected columns
+        mapping[selected_cols] = row_mapping
+        # Map the selected column indices
+        new_col_indices = mapping[selected_indices[1]]
+
+        if (new_col_indices == -1).any():
+            raise RuntimeError("Some column indices were not mapped correctly.")
+
+        # Replace the column indices with the new column indices
+        new_indices = selected_indices.clone()
+        new_indices[1] = new_col_indices
+
+        # Define the new size: number of rows remains the same, number of selected columns
+        new_size = list(sparse_coo.size())
+        new_size[1] = self.grad_mask.sum().item()
+
+        # Create the new sparse COO tensor
+        new_sparse_coo = torch.sparse_coo_tensor(new_indices, selected_values, size=new_size)
+
+        return new_sparse_coo

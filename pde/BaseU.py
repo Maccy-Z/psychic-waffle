@@ -12,10 +12,11 @@ class UBase(abc.ABC):
     N_points: int  # Number of real points.
 
     us: Tensor  # Value of u at all points.
+    Xs: Tensor  # Coordinates of all points. Shape = [N_total, 2]
 
-    grad_mask: Tensor  # Which us have gradient. Shape = [N+2, ...]
-    pde_mask: Tensor  # Which PDEs are used to fit us. Automatically disregard extra points. Shape = [N, ...]
-    u_mask: tuple[slice, ...]  # Real us points [1:-1, ...]
+    grad_mask: Tensor  # Which us have gradient. Shape = [N_u_grad]
+    pde_mask: Tensor  # Which PDEs are used to fit us. Automatically disregard extra points. Shape = [N_pde, ...]
+    u_mask: tuple[slice, ...]  # Real us points [N_u_real]
     N_us_grad: int        # Number of points that need fitting
 
     pde_true_idx: Tensor

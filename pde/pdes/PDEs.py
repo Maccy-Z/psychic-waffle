@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from pde.config import Config
 from pde.utils import show_grid
 
@@ -17,29 +17,33 @@ class PDEFunc(torch.nn.Module, ABC):
 
     def residuals(self, u_dus: dict[tuple, torch.Tensor], Xs: torch.Tensor) -> torch.Tensor:
         """
+                f(u, du/dX, d2u/dX2, X, thetas) = 0
         Args:
-            u_dus: u, du/dx, d2u/dx2. Shape = [3][*BS (~Nx * Ny), Nitem].
-            Xs: Grid points. Shape = [*BS (~Nx * Ny), 2]
-        f(u, du/dX, d2u/dX2, X, thetas) = 0
-        Returns: PDE residual (=0 for exact solution), shape=[*BS]
+            u_dus: u and all gradients at point X. Shape = [BS, N_grads+1]. Sorted by (0, 0), (1, 0), (0, 1), (2, 0), (1, 1), ...
+            Xs: Grid points. Shape = [BS, 2]
+        Returns: PDE residual (=0 for exact solution), shape=[BS]
         """
+        u_dus = torch.stack(list(u_dus.values())).T
         return self.forward(u_dus, Xs)
 
+    @abstractmethod
+    def forward(self, u_dus: torch.Tensor, Xs: torch.Tensor):
+        """ us_dus.shape = [BS, N_grads+1]. Sorted by (0, 0), (1, 0), (0, 1), (2, 0), (1, 1), ...
+            In vmap-able format.
+        """
+        pass
 
 class Poisson(PDEFunc):
     def __init__(self, cfg: Config, device='cpu'):
         super().__init__(cfg=cfg, device=device)
         self.to(device)
 
-    def forward(self, u_dus: dict[tuple, torch.Tensor], Xs: torch.Tensor):
-        u = u_dus[(0, 0)]
-        dudx, dudy = u_dus[(1, 0)], u_dus[(0, 1)]
-        d2udx2, d2udy2 = u_dus[(2, 0)], u_dus[(0, 2)]
+    def forward(self, u_dus: torch.Tensor, Xs: torch.Tensor):
+        u = u_dus[..., 0]
+        dudx, dudy = u_dus[...,  1], u_dus[...,  2]
+        d2udx2, d2udxdy, d2udy2 = u_dus[...,  3], u_dus[...,  4], u_dus[...,  5]
 
         resid = 1 * d2udx2 + 1 * d2udy2 + 0 * dudx + 0 * dudy - 5 * u + 5
-
-        # print(u.shape, dudx.shape, d2udx2.shape, resid.shape)
-        # exit(9)
 
         return resid
 

@@ -33,9 +33,11 @@ class DerivGraph:
     weights: torch.Tensor
     neighbors: dict[int, torch.Tensor]
 
+    device: str = "cpu"
     def cuda(self):
         self.edge_idx = self.edge_idx.cuda(non_blocking=True)
         self.weights = self.weights.cuda(non_blocking=True)
+        self.device = "cuda"
 
 
 def main():
