@@ -2,6 +2,7 @@ import torch
 from typing import Literal
 from functools import lru_cache
 from scipy.spatial import KDTree
+from cprint import c_print
 
 from pde.findiff.min_norm import min_sq_norm, min_abs_norm
 from pde.graph_grid.graph_store import Point, P_Types

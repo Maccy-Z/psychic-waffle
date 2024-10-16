@@ -55,11 +55,11 @@ class PDEForward:
 
         # 4.2) Sum over k: sum_k partials_ijk
         jacobian = self.csr_summer.sum(partials)
-        # jacobian = partials[0]
-        # for part in partials[1:]:
-        #     jacobian += part
+            # jacobian = partials[0]
+            # for part in partials[1:]:
+            #     jacobian += part
 
-        return jacobian, residuals
+        return jacobian.to_dense(), residuals
 
 
 class PDEAdjoint:
