@@ -64,7 +64,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         only_us = torch.eye(N_points, device=self.device).to_sparse_coo()
         only_us = self.coo_row_select(only_us)
         only_us = self.coo_col_select(only_us)
-        self.jac_spms.append(only_us)
+        self.jac_spms.append(only_us.to_sparse_csr())
         for order, graph in fd_graphs.items():
             edge_idx = graph.edge_idx
             edge_coeff = graph.weights
@@ -74,7 +74,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
             self.fd_spms[order] = sp_mat_fwd
 
             sp_mat_jac = self.coo_col_select(sp_mat)   # shape = [N_pde, N_grad]
-
+            sp_mat_jac = sp_mat_jac.to_sparse_csr()
             self.jac_spms.append(sp_mat_jac)
 
 

@@ -12,7 +12,7 @@ from sparse_tensor import SparseCSRTransposer
 class UGraph(UBase):
     """ Holder for graph structure. """
     setup_dict: dict[int, Point]  # [N_nodes, 2]                # Input properties of nodes.
-    Xs: Tensor   # [N_nodes, 2]                # Coordinates of nodes, CPU only.
+    Xs: Tensor   # [N_nodes, 2]                # Coordinates of nodes
     us: Tensor   # [N_nodes]                   # Value at node
     pde_mask: Tensor  # [N_nodes]                   # Mask for nodes that need to be updated. Bool
     grad_mask: Tensor  # [N_nodes]                   # Mask for nodes that need to be updated. Bool
@@ -21,7 +21,6 @@ class UGraph(UBase):
         # edge_index: torch.Tensor   # [2, num_edges]      # Edges between nodes
         # edge_coeff: torch.Tensor  # [num_edges]       # Finite diff coefficients for each edge
         # neighbors: list[Tensor]     # [N_nodes, N_neigh]           # Neighborhood for each node
-
 
     def __init__(self, setup_dict: dict[int, Point], grad_acc:int = 2, max_degree:int = 2, device="cpu"):
         """ Initialize the graph with a set of points.
@@ -104,10 +103,10 @@ class UGraph(UBase):
         """ Split grid into subgrids. """
         pass
 
-
     def _cuda(self):
         """ Move graph data to CUDA. """
         self.us = self.us.cuda(non_blocking=True)
+        self.Xs = self.Xs.cuda(non_blocking=True)
         self.pde_mask = self.pde_mask.cuda(non_blocking=True)
         self.grad_mask = self.grad_mask.cuda(non_blocking=True)
         [graph.cuda() for graph in self.graphs.values()]

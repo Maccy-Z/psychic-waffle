@@ -8,6 +8,7 @@ from pde.pdes.PDEs import PDEFunc
 from pde.loss import Loss
 from pde.findiff.fin_deriv_calc import FinDerivCalc
 from pde.BaseU import UBase
+from sparse_tensor import CSRSummer, CSRRowMultiplier
 
 class PDEForward:
     def __init__(self, u_graph: UGraph, pde_func: PDEFunc, deriv_calc: FinDerivCalc):
@@ -15,24 +16,10 @@ class PDEForward:
         self.u_graph = u_graph
         self.deriv_calc = deriv_calc
 
-    def residuals(self, us_grad, subgrid):
-        """ Returns residuals of equations that require gradients only. """
-        us_all = subgrid.add_nograd_to_us(us_grad)  # Shape = [N_total]. Need all Us to calculate derivatives.
-        Xs = subgrid.Xs  # Shape = [N_total, 2]. Only need Xs for residuals.
+        self.csr_summer = CSRSummer(self.deriv_calc.jacobian())
+        self.row_multipliers = [CSRRowMultiplier(spm) for spm in self.deriv_calc.jacobian()]
 
-        print(f'{us_all.shape = }')
-        grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
-        u_dus = torch.stack(list(grads_dict.values())).T
-
-        # Compute dR/dD. shape = [N_pde, N_derivs]
-        u_dus = u_dus.clone().requires_grad_(True)
-        residuals = self.pde_func(u_dus, Xs)
-        grad_outputs = torch.ones_like(residuals)
-        dRdD = torch.autograd.grad(outputs=residuals, inputs=u_dus, grad_outputs=grad_outputs, create_graph=True)[0]
-
-        return residuals, residuals
-
-    def jac_block(self, us_grad, subgrid: UBase):
+    def jac_block(self, u_grid: UBase):
         """
             Compute jacobian dR/dU = dR/dD * dD/dU.
             df_i/dU_j = sum_k df_i/dD_k * dD_ik/dU_j
@@ -43,8 +30,8 @@ class PDEForward:
             dD/dU.shape = [N_pde, N_derivs, N_u_grad]
         """
 
-        us_all = subgrid.add_nograd_to_us(us_grad)  # Shape = [N_total]. Need all Us to calculate derivatives.
-        Xs = subgrid.Xs.cuda()[subgrid.pde_mask]  # Shape = [N_total, 2]. Only need Xs for residuals.
+        us_all = u_grid.us  # Shape = [N_total]. Need all Us to calculate derivatives.
+        Xs = u_grid.Xs[u_grid.pde_mask]  # Shape = [N_total, 2]. Only need Xs for residuals.
 
         # 1) Finite differences D. shape = [N_pde, N_derivs]
         grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
@@ -61,17 +48,18 @@ class PDEForward:
         # 4.1) Take product over i: df_i/dD_k * dD_ik/dU_j. shape = [N_pde, N_u_grad]
         partials = []
         for d in range(len(dDdU)):
-            prod = torch.mul(dDdU[d], dRdD[:, d].unsqueeze(-1).repeat(1, subgrid.N_us_grad))
+            # prod = torch.mul(dDdU[d], dRdD[:, d].unsqueeze(-1).repeat(1, u_grid.N_us_grad))
+            # partials.append(prod)
+            prod = self.row_multipliers[d].mul(dDdU[d], dRdD[:, d])
             partials.append(prod)
 
         # 4.2) Sum over k: sum_k partials_ijk
-        jacobian = partials[0]
-        for part in partials[1:]:
-            jacobian += part
+        jacobian = self.csr_summer.sum(partials)
+        # jacobian = partials[0]
+        # for part in partials[1:]:
+        #     jacobian += part
 
-
-        #jacobian, residuals = torch.func.jacrev(self.residuals, has_aux=True, argnums=0)(us_grad, subgrid)
-        return jacobian.to_dense(), residuals
+        return jacobian, residuals
 
 
 class PDEAdjoint:

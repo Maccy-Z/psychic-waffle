@@ -32,7 +32,7 @@ class JacobCalc:
         self.device = sol_grid.device
 
     def jacobian(self):
-        """ Returns Jacobain of function. Return shape: [N_pde, N_us].
+        """ Returns Jacobain of function. Return shape: [N_pde, N_u_grad].
             PDEs are indexed by pde_mask and Us are indexed by us_grad_mask. 2D coordinates are stacked into 1D here.
             Columns for each function. Row for each u value.
          """
@@ -42,9 +42,9 @@ class JacobCalc:
         #
         # us_grad = subgrid.get_us_grad()
         # jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
-        us_grad = self.sol_grid.get_us_grad()
+        # us_grad = self.sol_grid.get_us_grad()
         # jacobian, residuals = torch.func.jacrev(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, self.sol_grid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
-        jacobian, residuals = self.pde_func.jac_block(us_grad, self.sol_grid)
+        jacobian, residuals = self.pde_func.jac_block(self.sol_grid)
 
         return jacobian, residuals
 

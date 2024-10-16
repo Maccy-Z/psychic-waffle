@@ -126,14 +126,14 @@ class SparseMatMulOperator:
         return f"SparseMatMulOperator with tensor: {self.A}"
 
 
-class SparseTensorSummer:
+class CSRSummer:
     """ Sum together multiple sparse CSR tensors with the same sparsity pattern. """
-    def __init__(self, B_list):
+    def __init__(self, B_list: list[torch.Tensor], check_sparsity=False):
         """
         Precompute the output CSR structure and mappings for efficient summation.
-        Parameters:
-        - B_list: List of K initial sparse CSR tensors (torch.sparse_csr_tensor).
+            B_list: List of K initial sparse CSR tensors (torch.sparse_csr_tensor).
         """
+        self.check_sparsity = check_sparsity
         self.size = B_list[0].size()
         self.device = B_list[0].device
         self.dtype = B_list[0].dtype
@@ -221,7 +221,7 @@ class SparseTensorSummer:
 
         return output_crow_indices, output_col_indices, index_mapping_list
 
-    def sum_tensors(self, B_list_new) -> torch.Tensor:
+    def sum(self, B_list_new: list[torch.Tensor]) -> torch.Tensor:
         """
         Sum the values from B_list_new into the output CSR tensor using precomputed mappings.
         Parameters:
@@ -229,17 +229,18 @@ class SparseTensorSummer:
         Returns:
         - J: The output sparse CSR tensor representing J_{ij} = sum_k B_{ijk}.
         """
-        # Check that the number of tensors matches
-        assert len(B_list_new) == len(self.index_mapping_list), (
-            "The number of tensors in B_list_new must match the initial B_list."
-        )
+        if self.check_sparsity:
+            # Check that the number of tensors matches
+            assert len(B_list_new) == len(self.index_mapping_list), (
+                "The number of tensors in B_list_new must match the initial B_list."
+            )
 
-        for k, B in enumerate(B_list_new):
-            # Ensure the sparsity pattern matches the initial B_k
-            if not torch.equal(B.crow_indices(), self.initial_crow_indices_list[k]):
-                raise ValueError(f"Sparsity pattern of B_list_new[{k}] does not match the initial B_list.")
-            if not torch.equal(B.col_indices(), self.initial_col_indices_list[k]):
-                raise ValueError(f"Sparsity pattern of B_list_new[{k}] does not match the initial B_list.")
+            for k, B in enumerate(B_list_new):
+                # Ensure the sparsity pattern matches the initial B_k
+                if not torch.equal(B.crow_indices(), self.initial_crow_indices_list[k]):
+                    raise ValueError(f"Sparsity pattern of B_list_new[{k}] does not match the initial B_list.")
+                if not torch.equal(B.col_indices(), self.initial_col_indices_list[k]):
+                    raise ValueError(f"Sparsity pattern of B_list_new[{k}] does not match the initial B_list.")
 
         # Initialize the output values tensor
         nnz_total = self.output_col_indices.size(0)
@@ -255,6 +256,40 @@ class SparseTensorSummer:
             self.output_crow_indices, self.output_col_indices, output_values, size=self.size
         )
         return J
+
+
+class CSRRowMultiplier:
+    def __init__(self, A_csr: torch.Tensor):
+        """
+        Initialize the CSRRowMultiplier with a CSR tensor.
+        Args:
+            A_csr (torch.Tensor): A sparse CSR tensor with fixed sparsity pattern.
+        """
+        self.A_csr = A_csr
+        self.crow_indices = A_csr.crow_indices()
+        self.col_indices = A_csr.col_indices()
+        self.size = A_csr.size()
+
+        # Precompute row indices for each non-zero element
+        row_lengths = self.crow_indices[1:] - self.crow_indices[:-1]
+        self.row_indices = torch.arange(self.A_csr.size(0), device=self.A_csr.device).repeat_interleave(row_lengths)
+
+    def mul(self, A: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """
+        Multiply the CSR tensor A row-wise by vector b.
+        """
+        # Scale the values by the corresponding row elements
+        scaled_values = A.values() * b[self.row_indices]
+
+        # Return a new CSR tensor with the scaled values
+        return torch.sparse_csr_tensor(
+            self.crow_indices,
+            self.col_indices,
+            scaled_values,
+            size=self.size,
+            device=self.A_csr.device
+        )
+
 
 # Example Usage
 if __name__ == "__main__":
