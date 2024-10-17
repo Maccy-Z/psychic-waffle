@@ -1,4 +1,4 @@
-from sparse_tensor import gen_rand_sp_matrix
+from pde.utils_sparse import gen_rand_sp_matrix
 import torch
 
 class SparseTensorSummer:

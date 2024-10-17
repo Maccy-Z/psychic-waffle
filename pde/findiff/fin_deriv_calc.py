@@ -1,6 +1,5 @@
 import torch
 from torch_geometric.nn import MessagePassing
-from torch_geometric.data import Data
 
 from pde.graph_grid.graph_store import DerivGraph
 from pde.BaseDerivCalc import BaseDerivCalc

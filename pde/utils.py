@@ -1,5 +1,4 @@
 from matplotlib import pyplot as plt
-import numpy as np
 import torch
 
 
@@ -43,8 +42,10 @@ def get_split_indices(tensor_size, m):
 
     return index_pairs
 
+
 def clamp(n, min_val, max_val):
     return max(min(n, max_val), min_val)
+
 
 def adjust_slice(slice_obj, start_adjust=0, stop_adjust=0):
     """Adjust the given slice object by modifying its start and stop values."""
@@ -55,9 +56,9 @@ def adjust_slice(slice_obj, start_adjust=0, stop_adjust=0):
 def setup_logging():
     import logging
     import sys
-    import matplotlib
 
     mpl_logger = logging.getLogger('matplotlib')
     mpl_logger.setLevel(logging.WARNING)
 
     logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='\033[31m%(levelname)s: \033[33m%(message)s \033[0m')
+    logging.info('Logging setup complete')

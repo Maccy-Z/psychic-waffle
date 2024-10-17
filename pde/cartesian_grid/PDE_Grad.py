@@ -9,10 +9,10 @@ from pde.pdes.PDEs import PDEFunc
 from pde.loss import Loss
 
 class PDEForward:
-    def __init__(self, u_grid: UGrid, pde_func: PDEFunc, deriv_calc: DerivativeCalc):
+    def __init__(self, u_grid: UGrid, pde_func: PDEFunc):
         self.pde_func = pde_func
         self.u_grid = u_grid
-        self.deriv_calc = deriv_calc
+        self.deriv_calc = u_grid.deriv_calc
 
     def residuals(self, us_grad, subgrid: USubGrid):
         """
@@ -44,10 +44,10 @@ class PDEForward:
 
 
 class PDEAdjoint:
-    def __init__(self, u_grid: UGrid, pde_func: PDEFunc, deriv_calc: DerivativeCalc, adj_jacob_calc, adj_lin_solver, loss_fn: Loss):
+    def __init__(self, u_grid: UGrid, pde_func: PDEFunc, adj_jacob_calc, adj_lin_solver, loss_fn: Loss):
         self.pde_func = pde_func
         self.us_grid = u_grid
-        self.deriv_calc = deriv_calc
+        self.deriv_calc = u_grid.deriv_calc
         self.adj_jacob_calc = adj_jacob_calc
         self.adj_lin_solver = adj_lin_solver
         self.loss_fn = loss_fn

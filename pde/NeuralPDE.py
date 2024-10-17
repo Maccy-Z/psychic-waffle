@@ -1,6 +1,6 @@
 import torch
 
-from pde.cartesian_grid.U_grid import UGridOpen2D
+from pde.cartesian_grid.U_grid import UGrid2D
 from pde.solvers.jacobian import get_jac_calc
 from pde.cartesian_grid.discrete_derivative import DerivativeCalc2D
 from pdes.PDEs import PDEFunc
@@ -13,7 +13,7 @@ from pde.loss import Loss
 
 
 class NeuralPDE:
-    us_grid: UGridOpen2D
+    us_grid: UGrid2D
     loss_fn: Loss
     adjoint: torch.Tensor
 
@@ -30,9 +30,8 @@ class NeuralPDE:
         neuman_bc = grid_setup.neuman_bc
 
         # PDE classes
-        us_grid = UGridOpen2D(Xs_grid, dirichlet_bc=dirichlet_bc, neuman_bc=neuman_bc)
-        deriv_calc = DerivativeCalc2D(Xs_grid, order=2)
-        pde_forward = PDEForward(us_grid, pde_fn, deriv_calc)
+        us_grid = UGrid2D(Xs_grid, dirichlet_bc=dirichlet_bc, neuman_bc=neuman_bc)
+        pde_forward = PDEForward(us_grid, pde_fn)
 
         # Forward solver
         fwd_lin_solver = LinearSolver(fwd_cfg.lin_mode, cfg.DEVICE, cfg=fwd_cfg.lin_solve_cfg)
@@ -42,7 +41,7 @@ class NeuralPDE:
         # Adjoint solver
         adj_lin_solver = LinearSolver(adj_cfg.lin_mode, self.DEVICE, adj_cfg.lin_solve_cfg)
         adj_jacob_calc = get_jac_calc(us_grid, pde_forward, adj_cfg)
-        pde_adjoint = PDEAdjoint(us_grid, pde_fn, deriv_calc, adj_jacob_calc, adj_lin_solver, loss_fn)
+        pde_adjoint = PDEAdjoint(us_grid, pde_fn, adj_jacob_calc, adj_lin_solver, loss_fn)
 
         self.pde_fn = pde_fn
         self.us_grid = us_grid

@@ -3,8 +3,7 @@ from abc import abstractmethod
 import torch
 from torch import Tensor
 import abc
-from pde.cartesian_grid.X_grid import XGrid
-from pde.utils import adjust_slice, show_grid
+
 
 class UBase(abc.ABC):
     device: torch.device | str

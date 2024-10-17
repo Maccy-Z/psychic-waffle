@@ -63,8 +63,8 @@ cdef class Config:
         with tempfile.NamedTemporaryFile(mode='r+') as fp:
             json.dump(params, fp)
             fp.seek(0)
-            print("Written JSON data:", fp.read())
-            fp.seek(0)
+            #print("Written JSON data:", fp.read())
+            #fp.seek(0)
             self.create_from_file(fp.name.encode())
         return self
 

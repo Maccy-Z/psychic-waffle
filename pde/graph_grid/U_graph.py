@@ -6,7 +6,7 @@ from pde.BaseU import UBase
 from pde.graph_grid.graph_utils import diag_permute
 from pde.graph_grid.graph_store import DerivGraph, Point, P_Types
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
-from sparse_tensor import SparseCSRTransposer
+from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV
 
 
 class UGraph(UBase):
@@ -14,13 +14,17 @@ class UGraph(UBase):
     setup_dict: dict[int, Point]  # [N_nodes, 2]                # Input properties of nodes.
     Xs: Tensor   # [N_nodes, 2]                # Coordinates of nodes
     us: Tensor   # [N_nodes]                   # Value at node
-    pde_mask: Tensor  # [N_nodes]                   # Mask for nodes that need to be updated. Bool
+
+    pde_mask: Tensor  # [N_nodes]                   # Mask for where to enforce PDE on. Bool
     grad_mask: Tensor  # [N_nodes]                   # Mask for nodes that need to be updated. Bool
 
     graphs: dict[tuple, DerivGraph] # [N_graphs]                  # Gradient graphs for each gradient type.
         # edge_index: torch.Tensor   # [2, num_edges]      # Edges between nodes
         # edge_coeff: torch.Tensor  # [num_edges]       # Finite diff coefficients for each edge
         # neighbors: list[Tensor]     # [N_nodes, N_neigh]           # Neighborhood for each node
+
+    deriv_calc: FinDerivCalcSPMV
+
 
     def __init__(self, setup_dict: dict[int, Point], grad_acc:int = 2, max_degree:int = 2, device="cpu"):
         """ Initialize the graph with a set of points.
@@ -87,17 +91,15 @@ class UGraph(UBase):
         # U requires gradient for normal or ghost points.
         self.grad_mask = grad_mask[permute_idx]
 
-        # 5) Precompute matrix transpose
-        adj_mat_dummy = torch.sparse_coo_tensor(self.edge_idx_jac, torch.empty_like(self.edge_idx_jac[0]), (self.N_nodes, self.N_nodes))
-        adj_mat_dummy = adj_mat_dummy.to_sparse_csr()
-        self.transposer = SparseCSRTransposer(adj_mat_dummy)
-
         self.N_us_grad = self.grad_mask.sum().item()
         self.N_points = len(normal_points) + len(boundary_points)
         self.N_tot_points = len(setup_dict)
 
+
         if device == "cuda":
             self._cuda()
+
+        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_points)
 
     def split(self, Ns):
         """ Split grid into subgrids. """

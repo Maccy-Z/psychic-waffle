@@ -41,6 +41,7 @@ class MSELoss(Loss):
             grads =  2 * (self.us_pred - self.us_true) / self.us_true.numel()
         return grads
 
+
 class MSELoss2(Loss):
     def __init__(self, us_true):
         super().__init__()
@@ -50,6 +51,18 @@ class MSELoss2(Loss):
         us_pred.requires_grad_(True)
         self.us_pred = us_pred
         loss = torch.mean((self.us_pred - self.us_true)**2)
+        self.loss_out = loss
+
+        return loss
+
+class DummyLoss(Loss):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, us_pred):
+        us_pred.requires_grad_(True)
+        self.us_pred = us_pred
+        loss = torch.norm(self.us_pred)
         self.loss_out = loss
 
         return loss

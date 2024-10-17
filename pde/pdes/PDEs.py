@@ -51,15 +51,16 @@ class LearnedFunc(PDEFunc):
     def __init__(self, cfg, device='cpu'):
         super().__init__(cfg=cfg, device=device)
 
-        self.test_param = torch.nn.Parameter(torch.tensor([1.3, 1., 0., 0.], device=device))
+        self.test_param = torch.nn.Parameter(torch.tensor([1, 1., -5, 5], device=device, dtype=torch.float32))
         self.to(device)
 
-    def forward(self, u_dus: tuple[torch.Tensor, ...], Xs: torch.Tensor):
-        u, dudX, d2udX2 = u_dus
-        u = u[..., 0]
+    def forward(self, u_dus: torch.Tensor, Xs: torch.Tensor):
+        u = u_dus[..., 0]
+        dudx, dudy = u_dus[...,  1], u_dus[...,  2]
+        d2udx2, d2udxdy, d2udy2 = u_dus[...,  3], u_dus[...,  4], u_dus[...,  5]
 
         p1, p2, p3, p4 = self.test_param
-        resid = p1 * d2udX2[..., 0]  + p2 * d2udX2[..., 1] + p3 * u + p4
+        resid = p1 * d2udx2  + p2 * d2udy2 + p3 * u + p4
 
         return resid
 

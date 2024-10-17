@@ -2,7 +2,7 @@ import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import reverse_cuthill_mckee
 
-from sparse_tensor import generate_random_sparse_matrix
+from pde.utils_sparse import generate_random_sparse_matrix
 
 np.set_printoptions(precision=2, suppress=True, linewidth=100)
 

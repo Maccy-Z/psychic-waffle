@@ -8,7 +8,6 @@ from solvers.linear_solvers import LinearSolver
 from solvers.solver_newton import SolverNewton
 from config import Config
 from pde.loss import Loss
-from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, FinDerivCalc
 
 class NeuralPDEGraph:
     us_graph: UGraph
@@ -22,11 +21,7 @@ class NeuralPDEGraph:
         self.cfg = cfg
         self.DEVICE = cfg.DEVICE
 
-        # PDE classes
-        deriv_calc = FinDerivCalcSPMV(us_graph.graphs, us_graph.pde_mask, us_graph.grad_mask, us_graph.N_points)
-        # deriv_calc = FinDerivCalc(us_graph.graphs, us_graph.pde_mask)
-
-        pde_forward = PDEForward(us_graph, pde_fn, deriv_calc)
+        pde_forward = PDEForward(us_graph, pde_fn)
 
         # Forward solver
         fwd_lin_solver = LinearSolver(fwd_cfg.lin_mode, cfg.DEVICE, cfg=fwd_cfg.lin_solve_cfg)

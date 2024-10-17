@@ -10,9 +10,8 @@ from typing import Literal, Callable
 
 from pde.solvers.gmres import gmres
 from pde.solvers.pyamgx_holder import PyAMGXManager
+from pde.config import LinMode
 
-SolvStr = Literal['sparse', 'dense', 'iterative', 'amgx']
-JacStr = Literal['dense', 'split']
 
 class LinearSolver:
     """ Solve Ax = b for x """
@@ -20,28 +19,27 @@ class LinearSolver:
     preproc: Callable
 
     cfg: dict = None
-    def __init__(self, mode: SolvStr, device: str, cfg: dict=None):
+    def __init__(self, mode: LinMode, device: str, cfg: dict=None):
         self.preproc = self.preproc_default
-
         if device == "cuda":
-            if mode == "dense":
+            if mode == LinMode.DENSE:
                 self.solver = self.cuda_dense
-            elif mode == "sparse":
+            elif mode == LinMode.SPARSE:
                 self.solver = self.cuda_sparse
-            elif mode == "iterative":
+            elif mode == LinMode.ITERATIVE:
                 self.solver = self.cuda_iterative
                 self.cfg = cfg
                 self.preproc = self.preproc_sparse
-            elif mode == "amgx":
+            elif mode == LinMode.AMGX:
                 self.cfg = cfg
                 self.amgx_solver = PyAMGXManager().create_solver(cfg)
                 self.solver = self.cuda_amgx
                 self.preproc = self.preproc_sparse
 
         elif device == "cpu":
-            if mode == "dense":
+            if mode == LinMode.DENSE:
                 self.solver = self.cpu_dense
-            elif mode == "sparse":
+            elif mode == LinMode.SPARSE:
                 self.solver = self.cpu_sparse
 
     def solve(self, A: torch.Tensor, b: torch.Tensor):
@@ -101,7 +99,7 @@ class LinearSolver:
     def preproc_default(self, A: torch.Tensor):
         return A
 
-    def preproc_sparse(self, A: torch.Tensor):
+    def preproc_sparse(self, A: torch.Tensor) -> sp.csr_matrix:
         """ Convert a torch tensor to a cupy sparse tensor """
         if A.is_sparse_csr:
             values = A.values()

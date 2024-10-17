@@ -1,20 +1,19 @@
 from abc import ABC, abstractmethod
+from BaseU import UBase
 import torch
 
 class PDEFwdBase(ABC):
     @abstractmethod
-    def residuals(self, us_grad: torch.Tensor, subgrid):
+    def residuals(self, subgrid: UBase, us_grad: torch.Tensor=None):
         """  Returns residuals of equations that require gradients only. """
         pass
 
-    @abstractmethod
     def only_resid(self):
         """ Only returns residuals. Used for tracking solve progress."""
         pass
 
-    def jac_block(self, us_grad: torch.Tensor, subgrid):
-        """ Calculate dR/dUs """
-        pass
+    def derivative(self, us):
+        raise NotImplementedError
 
 
 class PDEAdjBase(ABC):  # TODO: Probably doesn't need to be abstract.

@@ -1,33 +1,37 @@
 import torch
+import torch.func as func
 import cupy as cp
-from torch.autograd.functional import jacobian
 
+from pde.config import JacMode
 from pde.BaseU import UBase
 from pde.cartesian_grid.U_grid import USplitGrid, UNormalGrid
 from pde.cartesian_grid.PDE_Grad import PDEForward
 from pde.utils import get_split_indices, clamp
 from pde.BasePDEGrad import PDEFwdBase
+from pde.graph_grid.PDE_Grad import PDEForward as PDEForwardGraph
+from pde.utils_sparse import CSRSummer, CSRRowMultiplier, CSRTransposer
+from pde.graph_grid.U_graph import UGraph
 
-def get_jac_calc(us_grid: UBase, pde_forward: PDEForward, cfg):
-    if cfg.jac_mode == "dense":
+def get_jac_calc(us_grid: UBase, pde_forward: PDEFwdBase, cfg):
+    if cfg.jac_mode == JacMode.DENSE:
         jacob_calc = JacobCalc(us_grid, pde_forward)
-    elif cfg.jac_mode == "split":
+    elif cfg.jac_mode == JacMode.GRAPH:
+        jacob_calc = GraphJacobCalc(us_grid, pde_forward)
+    elif cfg.jac_mode == JacMode.SPLIT:
         jacob_calc = SplitJacobCalc(us_grid, pde_forward, num_blocks=cfg.num_blocks)
-    elif cfg.jac_mode == "sparse":
+    elif cfg.jac_mode == JacMode.SPARSE:
         jacob_calc = SparseJacobCalc(us_grid, pde_forward, num_blocks=cfg.num_blocks)
     else:
         raise ValueError(f"Invalid jac_mode {cfg.jac_mode = }. Must be 'dense' or 'split'")
-
     return jacob_calc
-
 
 class JacobCalc:
     """
         Calculate Jacobian of PDE.
     """
-    def __init__(self, sol_grid: UBase, pde_func:PDEFwdBase):
+    def __init__(self, sol_grid: UBase, pde_fwd:PDEFwdBase):
         self.sol_grid = sol_grid
-        self.pde_func = pde_func
+        self.pde_fwd = pde_fwd
 
         self.device = sol_grid.device
 
@@ -36,17 +40,75 @@ class JacobCalc:
             PDEs are indexed by pde_mask and Us are indexed by us_grad_mask. 2D coordinates are stacked into 1D here.
             Columns for each function. Row for each u value.
          """
-        # us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
-        #
-        # subgrid = UNormalGrid(self.sol_grid, us_grad_mask, pde_mask)
-        #
-        # us_grad = subgrid.get_us_grad()
-        # jacobian, residuals = torch.func.jacfwd(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
-        # us_grad = self.sol_grid.get_us_grad()
+        us, us_grad_mask, pde_mask = self.sol_grid.get_us_mask()
+
+        subgrid = UNormalGrid(self.sol_grid, us_grad_mask, pde_mask)
+
+        us_grad = subgrid.get_us_grad()
+        jacobian, residuals = torch.func.jacfwd(self.pde_fwd.residuals, has_aux=True, argnums=0)(us_grad, subgrid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
         # jacobian, residuals = torch.func.jacrev(self.pde_func.residuals, has_aux=True, argnums=0)(us_grad, self.sol_grid)  # N equations, N+2 Us, jacob.shape: [N^d, N^d]
-        jacobian, residuals = self.pde_func.jac_block(self.sol_grid)
 
         return jacobian, residuals
+
+    def jacob_transpose(self):
+        jacobian, _ = self.jacobian()
+        return jacobian.T
+
+class GraphJacobCalc(JacobCalc):
+    """ Use pde_func's inbuilt method to calculate jacobian"""
+    def __init__(self, u_graph: UGraph, pde_fwd:PDEForwardGraph):
+        super().__init__(u_graph, pde_fwd)
+        self.u_graph = u_graph
+        self.pde_fwd = pde_fwd
+        self.deriv_calc = u_graph.deriv_calc
+
+        # Precompute transforms with jacobian structure
+        deriv_jac_list = self.u_graph.deriv_calc.jacobian()
+        self.row_multipliers = [CSRRowMultiplier(spm) for spm in deriv_jac_list]
+        self.csr_summer = CSRSummer(deriv_jac_list)
+
+        dummy_jac = self.csr_summer.blank_csr()
+        self.transposer = CSRTransposer(dummy_jac, check_sparsity=True)
+
+    @torch.no_grad()
+    def jacobian(self):
+        """
+            Compute jacobian dR/dU = dR/dD * dD/dU.
+
+            us_grad.shape = [N_u_grad]. Gradients of trained u values.
+            dR/dU.shape = [N_pde, N_u_grad]
+            dR/dD.shape = [N_pde, N_derivs]
+            dD/dU.shape = [N_pde, N_derivs, N_u_grad]
+
+        """
+
+        us_all = self.u_graph.us  # Shape = [N_total].
+        Xs = self.u_graph.Xs[self.u_graph.pde_mask]  # Shape = [N_total, 2].
+
+        # 1) Finite differences D. shape = [N_pde, N_derivs]
+        grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
+        u_dus = torch.stack(list(grads_dict.values())).T    # shape = [N_pde, N_derivs]
+
+        # 2) dD/dU. shape = [N_derivs, N_u_grad]
+        dDdU = self.deriv_calc.jacobian() # shape = [N_derivs][N_pde, N_total]
+
+        # 3) dR/dD. shape = [N_pde, N_derivs]
+        resid_grad = func.grad_and_value(self.pde_fwd.residuals, argnums=0)
+        dRdD, residuals = func.vmap(resid_grad)(u_dus, Xs)
+
+        # 4.1) Take product over i: df_i/dD_k * dD_ik/dU_j. shape = [N_pde, N_u_grad]
+        partials = []
+        for d in range(len(dDdU)):
+            prod = self.row_multipliers[d].mul(dDdU[d], dRdD[:, d])
+            partials.append(prod)
+
+        # 4.2) Sum over k: sum_k partials_ijk
+        jacobian = self.csr_summer.sum(partials)
+        return jacobian, residuals
+
+    def jacob_transpose(self):
+        jacobian, _ = self.jacobian()
+        return self.transposer.transpose(jacobian)
 
 
 class SplitJacobCalc(JacobCalc):

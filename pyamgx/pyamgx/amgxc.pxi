@@ -173,10 +173,10 @@ cdef extern from "amgx_c.h":
         AMGX_matrix_handle mtx, AMGX_vector_handle rhs,
         AMGX_vector_handle sol, const char *filename)
 
-    AMGX_RC AMGX_vector_download2(
-            const AMGX_vector_handle vec,
-            void *data)
+    # AMGX_RC AMGX_vector_download2(
+    #         const AMGX_vector_handle vec,
+    #         void *data)
 
-    void *vector_pointer_get(AMGX_vector_handle vec)
+    void* vector_pointer_get(AMGX_vector_handle vec)
 
 

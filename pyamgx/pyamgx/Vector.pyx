@@ -254,7 +254,7 @@ cdef class Vector:
         cdef void* ptr = vector_pointer_get(self.vec)
 
         address = <unsigned long long><float*>ptr
-        print(f"Pointer address: 0x{address:016x}")
+        # print(f"Pointer address: 0x{address:016x}")
         mem = cupy.cuda.UnownedMemory(address, n*4, owner=None)
         memptr = cupy.cuda.MemoryPointer(mem, offset=0)
         tensor = cupy.ndarray((n,), dtype=cupy.float32, memptr=memptr)

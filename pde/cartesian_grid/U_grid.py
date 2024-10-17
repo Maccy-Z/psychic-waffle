@@ -3,6 +3,7 @@ from torch import Tensor
 import abc
 from pde.cartesian_grid.X_grid import XGrid
 from pde.utils import adjust_slice, show_grid
+from pde.cartesian_grid.discrete_derivative import DerivativeCalc2D
 
 class UGrid(abc.ABC):
     N_dim: int
@@ -16,10 +17,12 @@ class UGrid(abc.ABC):
     grad_mask: Tensor  # Which us have gradient. Shape = [N+2, ...]
     pde_mask: Tensor  # Which PDEs are used to fit us. Automatically disregard extra points. Shape = [N, ...]
     u_mask: tuple[slice, ...]  # Real us points [1:-1, ...]
-    N_us_fit: int | Tensor
+    N_us_grad: int | Tensor
 
     pde_true_idx: Tensor
     us_grad_idx: Tensor
+
+    deriv_calc: DerivativeCalc2D
 
     def __init__(self, X_grid: XGrid):
         self.device = X_grid.device
@@ -72,46 +75,49 @@ class UGrid(abc.ABC):
         self.pde_mask = self.pde_mask.cuda(non_blocking=True)
 
 
-class UGrid2D(UGrid):
-    """
-    Contains grid of points for solving PDE.
-    Handles and saves boundary conditions and masks.
-    """
+# class UGrid2D(UGrid):
+#     """
+#     Contains grid of points for solving PDE.
+#     Handles and saves boundary conditions and masks.
+#     """
+#
+#     def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None):
+#         """
+#         Boundary conditions set as a tensor of shape [Nx, Ny], with NaN for no boundary, including center.
+#         """
+#         super().__init__(X_grid)
+#         self.N_dim = 2
+#
+#         self._init_bc_dict(dirichlet_bc, neuman_bc)
+#
+#     def _init_bc_dict(self, dirichlet_bc, neuman_bc):
+#         if dirichlet_bc is None:
+#             dirichlet_bc = torch.full(self.N.tolist(), float("nan"))
+#         else:
+#             assert torch.all(torch.isnan(dirichlet_bc[1:-1, 1:-1])), f'{dirichlet_bc = } is not NaN in middle'
+#
+#         if neuman_bc is None:
+#             neuman_bc = torch.full(self.N.tolist(), float("nan"))
+#         else:
+#             assert torch.all(torch.isnan(neuman_bc[1:-1, 1:-1])), f'{neuman_bc = } is not NaN in middle'
+#
+#             corner_idx = [(0, 0), (0, -1), (-1, 0), (-1, -1)]
+#             corners = torch.stack([neuman_bc[idx] for idx in corner_idx])
+#             assert torch.all(torch.isnan(corners)), f'{neuman_bc = } Undefined Neuman corner values.'
+#
+#         self.dirichlet_bc = dirichlet_bc
+#         self.neuman_bc = neuman_bc
+#
+#     def __repr__(self):
+#         return f"Grid of values, {self.us}"
 
+
+class UGrid2D(UGrid):
     def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None):
-        """
-        Boundary conditions set as a tensor of shape [Nx, Ny], with NaN for no boundary, including center.
-        """
         super().__init__(X_grid)
         self.N_dim = 2
 
         self._init_bc_dict(dirichlet_bc, neuman_bc)
-
-    def _init_bc_dict(self, dirichlet_bc, neuman_bc):
-        if dirichlet_bc is None:
-            dirichlet_bc = torch.full(self.N.tolist(), float("nan"))
-        else:
-            assert torch.all(torch.isnan(dirichlet_bc[1:-1, 1:-1])), f'{dirichlet_bc = } is not NaN in middle'
-
-        if neuman_bc is None:
-            neuman_bc = torch.full(self.N.tolist(), float("nan"))
-        else:
-            assert torch.all(torch.isnan(neuman_bc[1:-1, 1:-1])), f'{neuman_bc = } is not NaN in middle'
-
-            corner_idx = [(0, 0), (0, -1), (-1, 0), (-1, -1)]
-            corners = torch.stack([neuman_bc[idx] for idx in corner_idx])
-            assert torch.all(torch.isnan(corners)), f'{neuman_bc = } Undefined Neuman corner values.'
-
-        self.dirichlet_bc = dirichlet_bc
-        self.neuman_bc = neuman_bc
-
-    def __repr__(self):
-        return f"Grid of values, {self.us}"
-
-
-class UGridOpen2D(UGrid2D):
-    def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None):
-        super().__init__(X_grid, dirichlet_bc, neuman_bc)
 
         # Real elements
         self.u_mask = (slice(1, -1), slice(1, -1))
@@ -156,9 +162,9 @@ class UGridOpen2D(UGrid2D):
             self.pde_mask[inset_idx] = pde_vals
             self.grad_mask[inset_idx] = grad_vals
 
-        self.N_us_fit = self.grad_mask.sum().item()
-        N_us_fit, N_us = self.N_us_fit, self.pde_mask.sum().item()
-        assert N_us_fit == N_us, f"Need as many equations as unknowns, {N_us_fit = } != {N_us = }"
+        self.N_us_grad = self.grad_mask.sum().item()
+        N_us_grad, N_us = self.N_us_grad, self.pde_mask.sum().item()
+        assert N_us_grad == N_us, f"Need as many equations as unknowns, {N_us_grad = } != {N_us = }"
 
         self._fix_bc()
 
@@ -166,6 +172,7 @@ class UGridOpen2D(UGrid2D):
         self.pde_true_idx = torch.nonzero(self.pde_mask)
         self.us_grad_idx = torch.nonzero(self.grad_mask)
 
+        self.deriv_calc = DerivativeCalc2D(X_grid, order=2)
         if self.device == 'cuda':
             self._cuda()
 
@@ -198,6 +205,23 @@ class UGridOpen2D(UGrid2D):
 
         return pde_mask, grad_mask
 
+    def _init_bc_dict(self, dirichlet_bc, neuman_bc):
+        if dirichlet_bc is None:
+            dirichlet_bc = torch.full(self.N.tolist(), float("nan"))
+        else:
+            assert torch.all(torch.isnan(dirichlet_bc[1:-1, 1:-1])), f'{dirichlet_bc = } is not NaN in middle'
+
+        if neuman_bc is None:
+            neuman_bc = torch.full(self.N.tolist(), float("nan"))
+        else:
+            assert torch.all(torch.isnan(neuman_bc[1:-1, 1:-1])), f'{neuman_bc = } is not NaN in middle'
+
+            corner_idx = [(0, 0), (0, -1), (-1, 0), (-1, -1)]
+            corners = torch.stack([neuman_bc[idx] for idx in corner_idx])
+            assert torch.all(torch.isnan(corners)), f'{neuman_bc = } Undefined Neuman corner values.'
+
+        self.dirichlet_bc = dirichlet_bc
+        self.neuman_bc = neuman_bc
 
 class USubGrid:
     neuman_mask: torch.Tensor

@@ -16,7 +16,7 @@ class SolverNewton:
 
         self.N_iter = cfg.N_iter
         self.lr = cfg.lr
-        self.N_points = sol_grid.N_points
+        # self.N_points = sol_grid.N_points
         self.solve_acc = cfg.acc
 
         self.jac_calc = jac_calc
