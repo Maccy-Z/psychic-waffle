@@ -107,7 +107,7 @@ class DerivativeCalc2D(DerivativeCalc):
 
         self.extra_points = 1
 
-    def derivative(self, u) -> (torch.Tensor, torch.Tensor):
+    def derivative(self, u) -> dict[tuple, torch.Tensor]:
         """
             Calculate central finite difference derivatives
             u.shape = [Nx + boundary, Ny + boundary]
@@ -126,7 +126,9 @@ class DerivativeCalc2D(DerivativeCalc):
         dudX = torch.stack([dudx, dudy], dim=-1)
         d2udX2 = torch.stack([d2udx2, d2udy2], dim=-1)
 
+        #deriv_dict = {(1, 0): dudx, (0, 1): dudy, (2, 0): d2udx2, (1, 1): torch.empty_like(d2udx2), (0, 2): d2udy2}
         return dudX, d2udX2
+        #deriv_dict
 
 
 def main2D():

@@ -1,7 +1,7 @@
 import torch
 from codetiming import Timer
 import logging
-
+from cprint import c_print
 from pde.cartesian_grid.discrete_derivative import DerivativeCalc
 from pde.cartesian_grid.U_grid import UGrid, USubGrid
 from pde.cartesian_grid.X_grid import XGrid
@@ -18,29 +18,22 @@ class PDEForward:
         """
             Returns residuals of equations that require gradients only.
         """
+        c_print("Calculating residuals", "bright_cyan")
         us_bc = subgrid.add_nograd_to_us(us_grad)  # Shape = [N+2, N+2]. Need all Us to calculate derivatives.
         Xs = subgrid.Xs_pde  # Shape = [N+2, N+2, 2]. Only need Xs for residuals.
 
-        us = us_bc[1:-1, 1:-1].unsqueeze(-1)
-        dudX, d2udX2 = self.deriv_calc.derivative(us_bc)  # shape = [N, ...]. Derivative removes boundary points.
+        us = us_bc[1:-1, 1:-1]
+        deriv_dict = self.deriv_calc.derivative(us_bc)  # shape = [N, ...]. Derivative removes boundary points.
 
-        us_dus = (us, dudX, d2udX2)
+        #u_dus = torch.stack([us] + list(deriv_dict.values()), dim=-1)  # Shape = [N, N, N_grad + 1]
+        u_dus = [us.unsqueeze(-1)] + list(deriv_dict)
+        u_dus = torch.cat(u_dus, dim=-1)  # Shape = [N, N, N_grad + 1]
+        #u_dus = torch.permute(u_dus, (1, 2, 0))
+        residuals = self.pde_func(u_dus, Xs)
 
-        residuals = self.pde_func.residuals(us_dus, Xs)
         resid_grad = residuals[subgrid.pde_mask]
 
         return resid_grad, resid_grad
-
-    def only_resid(self):
-        """ Only returns residuals. Used for tracking solve progress."""
-        us_bc, Xs_bc = self.u_grid.get_all_us_Xs()
-        dudX, d2udX2 = self.deriv_calc.derivative(us_bc)
-        us, _ = self.u_grid.get_real_us_Xs()
-
-        us_dus = (us, dudX, d2udX2)
-        residuals = self.pde_func.residuals(us_dus, Xs_bc)
-
-        return residuals
 
 
 class PDEAdjoint:

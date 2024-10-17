@@ -121,7 +121,7 @@ class SplitJacobCalc(JacobCalc):
         self.device = sol_grid.device
 
         # Sparsity pattern of Jacobian and splitting. Always fixed
-        self.jacob_shape = self.sol_grid.N_us_fit  # == len(torch.nonzero(us_grad_mask))
+        self.jacob_shape = self.sol_grid.N_us_grad  # == len(torch.nonzero(us_grad_mask))
         self.num_blocks = num_blocks
         self.split_idxs = get_split_indices(self.jacob_shape, num_blocks)
         self.block_size = self.jacob_shape // self.num_blocks

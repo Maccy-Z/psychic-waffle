@@ -24,6 +24,8 @@ class PDEFunc(torch.nn.Module, ABC):
         Returns: PDE residual (=0 for exact solution), shape=[BS]
         """
         u_dus = torch.stack(list(u_dus.values())).T
+
+        #print(f'{u_dus.shape = }')
         return self.forward(u_dus, Xs)
 
     @abstractmethod
@@ -41,7 +43,7 @@ class Poisson(PDEFunc):
     def forward(self, u_dus: torch.Tensor, Xs: torch.Tensor):
         u = u_dus[..., 0]
         dudx, dudy = u_dus[...,  1], u_dus[...,  2]
-        d2udx2, d2udxdy, d2udy2 = u_dus[...,  3], u_dus[...,  4], u_dus[...,  5]
+        d2udx2, d2udxdy, d2udy2 = u_dus[...,  3], u_dus[...,  4], u_dus[...,  4]
 
         resid = 1 * d2udx2 + 1 * d2udy2 + 0 * dudx + 0 * dudy - 5 * u + 5
 

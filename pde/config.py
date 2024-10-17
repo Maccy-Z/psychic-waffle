@@ -22,8 +22,8 @@ class FwdConfig:
     lin_solve_cfg: dict = None
 
     # Jacobian mode
-    num_blocks: int = 4
-    jac_mode: JacMode = JacMode.SPARSE
+    num_blocks: int = 8
+    jac_mode: JacMode = JacMode.SPLIT
 
     # Newton Raphson PDE solver settings
     lin_mode: LinMode = LinMode.AMGX
@@ -62,7 +62,7 @@ class FwdConfig:
 class AdjointConfig:
     # Jacobian mode
     num_blocks: int = 4
-    jac_mode: JacMode = JacMode.SPARSE
+    jac_mode: JacMode = JacMode.SPLIT
 
     # Linear solver settings
     lin_mode: LinMode = LinMode.ITERATIVE
