@@ -22,7 +22,7 @@ class FwdConfig:
     lin_solve_cfg: dict = None
 
     # Jacobian mode
-    num_blocks: int = 16
+    num_blocks: int = 8
     jac_mode: JacMode = JacMode.SPARSE
 
     # Newton Raphson PDE solver settings
@@ -105,7 +105,7 @@ class Config:
     # Grid settings
     xmin: float = 0
     xmax: float = 1
-    N: tuple[int] = (200, 200)
+    N: tuple[int] = (100, 125)
 
     # Forward PDE solver config
     fwd_cfg: FwdConfig = field(default_factory=FwdConfig)
