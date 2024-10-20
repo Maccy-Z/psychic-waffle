@@ -1,4 +1,4 @@
-export AMGX_DIR=/home/maccyz/Documents/pyamgx/AMGX/
+export AMGX_DIR=/home/maccyz/Documents/AMGX/
 
 python setup.py build_ext --inplace
 

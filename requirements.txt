@@ -3,7 +3,7 @@ numpy
 scipy
 codetiming
 torch
-cupy
+# Using conda condacupy # conda
 torch
 git+https://github.com/Maccy-Z/c_print.git
 cython

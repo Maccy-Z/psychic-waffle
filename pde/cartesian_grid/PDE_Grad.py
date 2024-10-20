@@ -18,7 +18,7 @@ class PDEForward:
         """
             Returns residuals of equations that require gradients only.
         """
-        c_print("Calculating residuals", "bright_cyan")
+        # c_print("Calculating residuals", "bright_cyan")
         us_bc = subgrid.add_nograd_to_us(us_grad)  # Shape = [N+2, N+2]. Need all Us to calculate derivatives.
         Xs = subgrid.Xs_pde  # Shape = [N+2, N+2, 2]. Only need Xs for residuals.
 
