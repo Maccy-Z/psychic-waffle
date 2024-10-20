@@ -22,7 +22,7 @@ class FwdConfig:
     lin_solve_cfg: dict = None
 
     # Jacobian mode
-    num_blocks: int = 8
+    num_blocks: int = 4
     jac_mode: JacMode = JacMode.SPARSE
 
     # Newton Raphson PDE solver settings
