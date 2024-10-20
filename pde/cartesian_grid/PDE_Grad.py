@@ -21,11 +21,10 @@ class PDEForward:
         us_bc = subgrid.add_nograd_to_us(us_grad)  # Shape = [N+2, N+2]. Need all Us to calculate derivatives.
         Xs = subgrid.Xs_pde  # Shape = [N+2, N+2, 2]. Only need Xs for residuals.
 
-        us = us_bc[1:-1, 1:-1]
-        deriv_dict = self.deriv_calc.derivative(us_bc)  # shape = [N, ...]. Derivative removes boundary points.
 
-        u_dus = [us.unsqueeze(-1)] + list(deriv_dict)
-        u_dus = torch.cat(u_dus, dim=-1)  # Shape = [N, N, N_grad + 1]
+        deriv_dict = self.deriv_calc.derivative(us_bc)  # shape = [N, ...]. Derivative removes boundary points.
+        us = us_bc[1:-1, 1:-1]
+        u_dus = [us] + list(deriv_dict.values())
 
         residuals = self.pde_func(u_dus, Xs)
 

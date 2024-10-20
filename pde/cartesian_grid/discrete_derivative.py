@@ -123,13 +123,12 @@ class DerivativeCalc2D(DerivativeCalc):
         d2udx2 = F.conv2d(u, self.d2udx_kern, padding=0, stride=1)[0, :, self.extra_points:-self.extra_points]
         d2udy2 = F.conv2d(u, self.d2udy_kern, padding=0, stride=1)[0, self.extra_points:-self.extra_points, :]
 
-        dudX = torch.stack([dudx, dudy], dim=-1)
-        d2udX2 = torch.stack([d2udx2, d2udy2], dim=-1)
+        # dudX = torch.stack([dudx, dudy], dim=-1)
+        # d2udX2 = torch.stack([d2udx2, d2udy2], dim=-1)
+        # return dudX, d2udX2
 
-        #deriv_dict = {(1, 0): dudx, (0, 1): dudy, (2, 0): d2udx2, (1, 1): torch.empty_like(d2udx2), (0, 2): d2udy2}
-        return dudX, d2udX2
-        #deriv_dict
-
+        deriv_dict = {(1, 0): dudx, (0, 1): dudy, (2, 0): d2udx2, (1, 1): torch.empty_like(d2udx2), (0, 2): d2udy2}
+        return deriv_dict
 
 def main2D():
     def f(Xs):
