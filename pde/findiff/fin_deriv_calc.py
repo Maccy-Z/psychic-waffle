@@ -47,14 +47,14 @@ class FinDerivCalc(MessagePassing, BaseDerivCalc):
 
 class FinDerivCalcSPMV(BaseDerivCalc):
     """ Using sparse matrix-vector multiplication to compute Grad^n(u) using finite differences. """
-    def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask: torch.Tensor, grad_mask: torch.Tensor, N_points):
+    def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask: torch.Tensor, grad_mask: torch.Tensor, N_points, device="cpu"):
         """ Initialise sparse matrices from finite difference graphs.
             Compute d = A * u [pde_mask]. Compile pde_mask into A.
             Jacobian is A[pde_mask][us_mask]
         """
         self.pde_mask = pde_mask
         self.grad_mask = grad_mask
-        self.device = next(iter(fd_graphs.values())).device
+        self.device = device
 
         self.fd_spms = {}
         self.jac_spms = []      # shape = [N_diff], [N_pde, N_points]

@@ -135,7 +135,7 @@ def plot_sparsity(A, title=""):
     plt.show()
 
 
-def test_graph(xmin: float, xmax: float, N: Tensor, device='cpu'):
+def test_grid(xmin: float, xmax: float, N: Tensor, device='cpu'):
     # Establish range of y values from N and dx
     xmin, xmax = torch.tensor(xmin), torch.tensor(xmax)
     Lx = xmax - xmin

@@ -1,23 +1,52 @@
 import torch
-from matplotlib import pyplot as plt
 
 from pde.graph_grid.graph_store import Point, P_Types
 from pde.graph_grid.U_graph import UGraph
-from pde.graph_grid.graph_utils import test_graph, gen_perim, plot_interp_graph
+from pde.graph_grid.graph_utils import test_grid, gen_perim, plot_interp_graph
 from pde.config import Config
 from pde.NeuralPDE_Graph import NeuralPDEGraph
 from pdes.PDEs import Poisson, LearnedFunc
 from pde.utils import setup_logging
 from pde.loss import DummyLoss
 
+
+def new_graph(cfg):
+    cfg = Config()
+
+    Xs_perim = gen_perim(1, 1, 0.1)
+    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([30, 30]), device="cpu")
+    Xs_bc = [Point(P_Types.BOUNDARY, X, 0.) for X in Xs_perim]
+    Xs_bulk = [Point(P_Types.NORMAL, X, 0.) for X in Xs_bulk]
+    Xs_all = {i: X for i, X in enumerate(Xs_bc + Xs_bulk)}
+    u_graph = UGraph(Xs_all, device=cfg.DEVICE)
+
+    with open("save_u_graph.pth", "wb") as f:
+        torch.save(u_graph, f)
+
+    return u_graph
+
+def load_graph(cfg):
+    u_graph = torch.load("save.pkl")
+    return u_graph
+
+def true_pde():
+    cfg = Config()
+    u_graph = load_graph(cfg)
+
+    pde_fn = Poisson(cfg, device=cfg.DEVICE)
+    pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())
+
+    pde_adj.forward_solve()
+    us, Xs = u_graph.us, u_graph.Xs
+    plot_interp_graph(Xs, us)
+
 def main():
     torch.set_printoptions(linewidth=200, precision=3)
-    setup_logging()
     cfg = Config()
 
     # Make computation graph
     Xs_perim = gen_perim(1, 1, 0.1)
-    Xs_bulk = test_graph(0.02, 0.98, torch.tensor([12, 12]), device="cpu")
+    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([12, 12]), device="cpu")
     Xs_bc = [Point(P_Types.BOUNDARY, X, 0.) for X in Xs_perim]
     Xs_bulk = [Point(P_Types.NORMAL, X, 0.) for X in Xs_bulk]
     Xs_all = {i: X for i, X in enumerate(Xs_bc + Xs_bulk)}
@@ -49,6 +78,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    setup_logging()
+
+    true_pde()
 
 

@@ -25,7 +25,6 @@ class UGraph(UBase):
 
     deriv_calc: FinDerivCalcSPMV
 
-
     def __init__(self, setup_dict: dict[int, Point], grad_acc:int = 2, max_degree:int = 2, device="cpu"):
         """ Initialize the graph with a set of points.
             setup_dict: dict[node_id, Point]. Dictionary of each type of point
@@ -71,11 +70,10 @@ class UGraph(UBase):
         # 4) Permute the adjacency matrix to be as diagonal as possible.
         permute_idx = diag_permute(adj_mat_sp)
         permute_idx = torch.from_numpy(permute_idx.copy())
+        perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
 
         # 4.1) Permute everything to new indices.
         # From here onwards, use permuted indices for everything.
-        perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
-        self.edge_idx_jac = torch.tensor([perm_map[idx.item()] for idx in edge_idxs.flatten()]).reshape(edge_idxs.shape)
         for degree, graph in self.graphs.items():
             edge_idx = graph.edge_idx
             edge_idx = torch.tensor([perm_map[idx.item()] for idx in edge_idx.flatten()]).reshape(edge_idx.shape)
@@ -83,11 +81,11 @@ class UGraph(UBase):
             graph.neighbors = None      # Dont need anymore.
 
         setup_dict = {perm_map[old_idx]: v for old_idx, v in setup_dict.items()}
-        self.setup_dict = {k: setup_dict[k] for k in sorted(setup_dict.keys())}
-        self.Xs = torch.stack([point.X for point in self.setup_dict.values()])
-        self.us = torch.tensor([point.value for point in self.setup_dict.values()])
+        setup_dict = {k: setup_dict[k] for k in sorted(setup_dict.keys())}
+        self.Xs = torch.stack([point.X for point in setup_dict.values()])
+        self.us = torch.tensor([point.value for point in setup_dict.values()])
         # PDE is enfoced on normal points.
-        self.pde_mask = torch.tensor([X.point_type == P_Types.NORMAL for X in self.setup_dict.values()])
+        self.pde_mask = torch.tensor([X.point_type == P_Types.NORMAL for X in setup_dict.values()])
         # U requires gradient for normal or ghost points.
         self.grad_mask = grad_mask[permute_idx]
 
@@ -99,7 +97,7 @@ class UGraph(UBase):
         if device == "cuda":
             self._cuda()
 
-        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_points)
+        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_points, device=self.device)
 
     def split(self, Ns):
         """ Split grid into subgrids. """

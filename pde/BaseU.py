@@ -58,11 +58,6 @@ class UBase(abc.ABC):
     #     """ Neuman boundary conditions are special, since autograd needs to track values across two points. """
     #     pass
 
-    @abc.abstractmethod
-    def split(self, Ns):
-        """ Split computation into subgrids for more efficient Jacobian computation."""
-        pass
-
     def get_us_grad(self):
         """ Return us with gradients. """
         return self.us[self.grad_mask]

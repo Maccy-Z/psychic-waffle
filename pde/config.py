@@ -23,13 +23,13 @@ class FwdConfig:
 
     # Jacobian mode
     num_blocks: int = 4
-    jac_mode: JacMode = JacMode.SPARSE
+    jac_mode: JacMode = JacMode.GRAPH
 
     # Newton Raphson PDE solver settings
     lin_mode: LinMode = LinMode.AMGX
     N_iter: int = 7
     lr: float = 1
-    acc: float = 1e-4
+    acc: float = 0.
 
     def __post_init__(self):
         #self.lin_solve_cfg = {"maxiter": self.maxiter, "restart": self.restart, "rtol": self.rtol}
@@ -62,7 +62,7 @@ class FwdConfig:
 class AdjointConfig:
     # Jacobian mode
     num_blocks: int = 4
-    jac_mode: JacMode = JacMode.SPLIT
+    jac_mode: JacMode = JacMode.GRAPH
 
     # Linear solver settings
     lin_mode: LinMode = LinMode.ITERATIVE

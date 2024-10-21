@@ -70,6 +70,8 @@ class GraphJacobCalc(JacobCalc):
         dummy_jac = self.csr_summer.blank_csr()
         self.transposer = CSRTransposer(dummy_jac, check_sparsity=True)
 
+        self.resid_grad_val = func.grad_and_value(self.pde_fwd.residuals, argnums=0)
+
     @torch.no_grad()
     def jacobian(self):
         """
@@ -87,14 +89,13 @@ class GraphJacobCalc(JacobCalc):
 
         # 1) Finite differences D. shape = [N_pde, N_derivs]
         grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
-        u_dus = torch.stack(list(grads_dict.values())).T    # shape = [N_pde, N_derivs]
+        u_dus = torch.stack(list(grads_dict.values()), dim=-1)    # shape = [N_pde, N_derivs]
 
         # 2) dD/dU. shape = [N_derivs, N_u_grad]
         dDdU = self.deriv_calc.jacobian() # shape = [N_derivs][N_pde, N_total]
 
         # 3) dR/dD. shape = [N_pde, N_derivs]
-        resid_grad = func.grad_and_value(self.pde_fwd.residuals, argnums=0)
-        dRdD, residuals = func.vmap(resid_grad)(u_dus, Xs)
+        dRdD, residuals = func.vmap(self.resid_grad_val)(u_dus, Xs)
 
         # 4.1) Take product over i: df_i/dD_k * dD_ik/dU_j. shape = [N_pde, N_u_grad]
         partials = []
