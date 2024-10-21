@@ -19,8 +19,7 @@ class PDEFunc(torch.nn.Module, ABC):
             Xs: Grid points. Shape = [BS, 2]
         Returns: PDE residual (=0 for exact solution), shape=[BS]
         """
-        u_dus = torch.stack(list(u_dus.values())).T
-
+        u_dus = list(u_dus.values())
         return self.forward(u_dus, Xs)
 
     @abstractmethod
