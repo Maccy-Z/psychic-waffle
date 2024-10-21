@@ -14,14 +14,14 @@ def new_graph(cfg):
     cfg = Config()
 
     Xs_perim = gen_perim(1, 1, 0.1)
-    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([30, 30]), device="cpu")
+    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([64, 64]), device="cpu")
     Xs_bc = [Point(P_Types.BOUNDARY, X, 0.) for X in Xs_perim]
     Xs_bulk = [Point(P_Types.NORMAL, X, 0.) for X in Xs_bulk]
     Xs_all = {i: X for i, X in enumerate(Xs_bc + Xs_bulk)}
-    u_graph = UGraph(Xs_all, device=cfg.DEVICE)
+    u_graph = UGraph(Xs_all, grad_acc=4, device=cfg.DEVICE)
 
-    with open("save_u_graph.pth", "wb") as f:
-        torch.save(u_graph, f)
+    # with open("save_u_graph.pth", "wb") as f:
+    #     torch.save(u_graph, f)
 
     return u_graph
 
@@ -31,7 +31,7 @@ def load_graph(cfg):
 
 def true_pde():
     cfg = Config()
-    u_graph = load_graph(cfg)
+    u_graph = new_graph(cfg)
 
     pde_fn = Poisson(cfg, device=cfg.DEVICE)
     pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())

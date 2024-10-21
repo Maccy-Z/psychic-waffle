@@ -86,7 +86,7 @@ def min_abs_norm(A, b ,c):
     ))
     b_ub = np.zeros(2 * n)
     # Variable bounds
-    bounds = [(-2**13, 2**13)] * n + [(0, np.inf)] * n
+    bounds = [(-np.inf, np.inf)] * n + [(0, np.inf)] * n
 
     # Solve LP
     result = linprog(c=obj, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds)
