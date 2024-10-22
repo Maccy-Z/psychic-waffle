@@ -196,12 +196,11 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
     diff_acc: int
     diff_order: Tuple[int, int]
     """
-    want_type = {P_Types.NORMAL, P_Types.GHOST}
     Xs_all = torch.stack([point.X for point in point_dict.values()])
     N_nodes = len(point_dict)
     kdtree = KDTree(Xs_all)
 
-    pde_dict = {idx: point for idx, point in point_dict.items() if point.point_type in want_type}
+    pde_dict = {idx: point for idx, point in point_dict.items() if point.point_type in P_Types.GRAD}
 
     edge_idxs, weights, neighbors = [], [], {}
     for j, point in pde_dict.items():
@@ -209,7 +208,7 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
         # Find the nearest neighbors and calculate coefficients.
         # If the calculation fails (not enough points for given accuracy), increase the number of neighbors until it succeeds.
         min_points = min(75, N_nodes)
-        max_points = min(151, N_nodes + 1)
+        max_points = min(201, N_nodes + 1)
         for i in range(min_points, max_points, 25):
             err = None
             try:
@@ -235,7 +234,7 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
             try:
                 _, neigh_idx = kdtree.query(X, k=min(150, N_nodes))
                 neigh_Xs = Xs_all[neigh_idx]
-                w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=1e-3, eps=10e-8)
+                w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=1e-3, eps=12e-8)
             except ConvergenceError as e:
                 # Unable to find suitable weights.
                 status, err_msg = e.args
@@ -295,7 +294,7 @@ def main():
     center = torch.tensor([x0, y0], dtype=torch.float32)
 
     # Compute the finite difference weights
-    weights, status = fin_diff_weights(center, points, derivative_order, m, method="abs_weight_norm", atol=100e-4, eps=12e-8)
+    weights, status = fin_diff_weights(center, points, derivative_order, m, method="abs_weight_norm", atol=100e-4, eps=6e-8)
 
     # # Display the computed weights
     # print()

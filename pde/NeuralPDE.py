@@ -11,7 +11,6 @@ from config import Config
 from pde.loss import Loss
 
 
-
 class NeuralPDE:
     us_grid: UGrid2D
     loss_fn: Loss
@@ -80,31 +79,6 @@ class NeuralPDE:
         return us, Xs
 
 
-def main():
-    from pdes.PDEs import Poisson
 
-    cfg = Config()
-    pde_fn = Poisson(cfg, device=cfg.DEVICE)
-    # pde_fn.plot_bc()
-
-    N_us_grad = torch.isnan(pde_fn.dirichlet_bc).sum().item()   # Hardcoded
-    us_base = torch.full((N_us_grad,), 0., device=cfg.DEVICE)
-    loss_fn = MSELoss(us_base)
-
-    pde_adj = NeuralPDE(pde_fn, loss_fn, cfg)
-
-    pde_adj.forward_solve()
-    pde_adj.adjoint_solve()
-    pde_adj.backward()
-
-    us, grad_mask, _ = pde_adj.us_grid.get_us_mask()
-    us = us[grad_mask]
-    torch.save(us, 'us.pt')
-
-    for n, p in pde_fn.named_parameters():
-        print(f'{n = }, {p.grad = }')
-
-if __name__ == "__main__":
-    main()
 
 

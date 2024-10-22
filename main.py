@@ -1,29 +1,15 @@
-import torch
-from functools import lru_cache, wraps
+from enum import Flag, auto
+
+class P_Types(Flag):
+    NORMAL = auto() # Standard PDE: u = f(us, x) enforced on this point.
+    BOUNDARY = auto()   # Dirichlet: u = Dirichlet(x) enforced on this point.
+    DERIV = auto()  # deriv(u, us) = Neumann(x) enforced on this point. Can be used as central Neumann derivative or edge, depending on other nodes.
+    GHOST = auto() # No function on point. Ghost point. u function inherited from central DERIV point.
+
+    BOTH = BOUNDARY | DERIV
+    GRAD = NORMAL | GHOST # u requires fitting on point.
 
 
+print(P_Types.NORMAL in P_Types.GRAD)
 
 
-
-
-
-# Example usage
-@lru_cache_tensor(maxsize=256)
-def compute_expensive_operation(tensor: torch.Tensor, multiplier: float) -> torch.Tensor:
-    """
-    An example function that performs an expensive computation on a tensor.
-    """
-
-    print(f"Computing {multiplier = } ")
-    # Simulate an expensive operation
-    return tensor * multiplier + torch.sin(tensor)
-
-
-# Example calls
-if __name__ == "__main__":
-    t1 = torch.randn(100, 100)
-    t2 = torch.randn(100, 100)
-
-    result1 = compute_expensive_operation(t1, 2.5)  # Cached
-    result2 = compute_expensive_operation(t1, 2.5)  # Retrieved from cache
-    result3 = compute_expensive_operation(t2, 3.0)  # Cached

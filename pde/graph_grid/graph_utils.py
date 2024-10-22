@@ -153,8 +153,8 @@ def test_grid(xmin: float, xmax: float, N: Tensor, device='cpu'):
     n_grid, m_grid = torch.meshgrid(y_values, x_values, indexing='xy')
 
     # Combine the grids to form the final N x M grid of points
-    Xs = torch.stack([m_grid, n_grid], dim=-1).view(-1, 2).to(device)  # shape = [N, 2]
-
+    Xs = torch.stack([m_grid, n_grid], dim=-1).view(-1, 2)  # shape = [N, 2]
+    Xs = Xs + torch.randn_like(Xs) * 0.005
     c_print(f'Grid Range: {Xmin.tolist()} to {Xmax.tolist()}.', 'green')
     c_print(f'Grid Spacing: {dx:.5g}, grid Shape: {N.tolist()}.', 'green')
 
@@ -177,11 +177,12 @@ def plot_interp_graph(points, values, resolution=100):
     grid_z = griddata(points, values, (grid_x, grid_y), method='nearest')
 
     # Plot the interpolated data
+    plt.figure(figsize=(12, 12))
     plt.imshow(grid_z.T, extent=(x_min, x_max, y_min, y_max), origin='lower', cmap='viridis')
     plt.colorbar()
 
     # Scatter plot of the original points
-    plt.scatter(points[:, 0], points[:, 1], marker='.')
+    plt.scatter(points[:, 0], points[:, 1], marker='.', s=10)
 
     # Title and axis labels
     plt.title(f'Nearest Neighbor Interpolation')

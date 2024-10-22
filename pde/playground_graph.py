@@ -13,20 +13,20 @@ from pde.loss import DummyLoss
 def new_graph(cfg):
     cfg = Config()
 
-    Xs_perim = gen_perim(1, 1, 0.1)
-    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([64, 64]), device="cpu")
-    Xs_bc = [Point(P_Types.BOUNDARY, X, 0.) for X in Xs_perim]
-    Xs_bulk = [Point(P_Types.NORMAL, X, 0.) for X in Xs_bulk]
+    Xs_perim = gen_perim(1, 1, 0.05)
+    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([32, 32]), device="cpu")
+    Xs_bc = [Point(P_Types.BOUNDARY, X, value=0.) for X in Xs_perim]
+    Xs_bulk = [Point(P_Types.NORMAL, X, value= 0.) for X in Xs_bulk]
     Xs_all = {i: X for i, X in enumerate(Xs_bc + Xs_bulk)}
     u_graph = UGraph(Xs_all, grad_acc=4, device=cfg.DEVICE)
 
-    # with open("save_u_graph.pth", "wb") as f:
-    #     torch.save(u_graph, f)
+    with open("save_u_graph.pth", "wb") as f:
+        torch.save(u_graph, f)
 
     return u_graph
 
 def load_graph(cfg):
-    u_graph = torch.load("save.pkl")
+    u_graph = torch.load("save_u_graph.pth")
     return u_graph
 
 def true_pde():
@@ -79,6 +79,7 @@ def main():
 
 if __name__ == "__main__":
     setup_logging()
+    torch.manual_seed(1)
 
     true_pde()
 

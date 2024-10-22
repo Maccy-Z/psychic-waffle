@@ -48,7 +48,40 @@ class UGraph(UBase):
             self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
 
         # 3) Create an overall adjacency matrix for jacobian calculation.
-        grad_mask = torch.tensor([X.point_type == P_Types.GHOST or X.point_type == P_Types.NORMAL for X in setup_dict.values()])
+        adj_mat_sp = self._adj_mat()
+
+        # 4) Permute the adjacency matrix to be as diagonal as possible.
+        permute_idx = diag_permute(adj_mat_sp)
+        permute_idx = torch.from_numpy(permute_idx.copy())
+        perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
+        # 4.1) Permute everything to new indices.
+        for degree, graph in self.graphs.items():
+            edge_idx = graph.edge_idx
+            edge_idx = torch.tensor([perm_map[idx.item()] for idx in edge_idx.flatten()]).reshape(edge_idx.shape)
+            graph.edge_idx = edge_idx
+            graph.neighbors = None      # Dont need anymore.
+
+        setup_dict = {perm_map[old_idx]: v for old_idx, v in setup_dict.items()}
+        setup_dict = {k: setup_dict[k] for k in sorted(setup_dict.keys())}
+        self.Xs = torch.stack([point.X for point in setup_dict.values()])
+        self.us = torch.tensor([point.value for point in setup_dict.values()])
+        # PDE is enfoced on normal points.
+        self.pde_mask = torch.tensor([X.point_type == P_Types.NORMAL for X in setup_dict.values()])
+        # U requires gradient for normal or ghost points.
+        grad_mask = torch.tensor([X.point_type in P_Types.GRAD  for X in setup_dict.values()])
+        self.grad_mask = grad_mask
+
+        self.N_us_grad = self.grad_mask.sum().item()
+        self.N_points = len(normal_points) + len(boundary_points)
+        self.N_tot_points = len(setup_dict)
+
+
+        if device == "cuda":
+            self._cuda()
+
+        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_points, device=self.device)
+
+    def _adj_mat(self):
         adj_mat = []
         for point in range(self.N_nodes):
             neigh_all = []
@@ -66,38 +99,7 @@ class UGraph(UBase):
         edge_idxs = torch.stack([row_idxs, col_idxs], dim=0)
         dummy_val = torch.ones(edge_idxs.shape[1])
         adj_mat_sp = torch.sparse_coo_tensor(edge_idxs, dummy_val, (self.N_nodes, self.N_nodes))
-
-        # 4) Permute the adjacency matrix to be as diagonal as possible.
-        permute_idx = diag_permute(adj_mat_sp)
-        permute_idx = torch.from_numpy(permute_idx.copy())
-        perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
-
-        # 4.1) Permute everything to new indices.
-        # From here onwards, use permuted indices for everything.
-        for degree, graph in self.graphs.items():
-            edge_idx = graph.edge_idx
-            edge_idx = torch.tensor([perm_map[idx.item()] for idx in edge_idx.flatten()]).reshape(edge_idx.shape)
-            graph.edge_idx = edge_idx
-            graph.neighbors = None      # Dont need anymore.
-
-        setup_dict = {perm_map[old_idx]: v for old_idx, v in setup_dict.items()}
-        setup_dict = {k: setup_dict[k] for k in sorted(setup_dict.keys())}
-        self.Xs = torch.stack([point.X for point in setup_dict.values()])
-        self.us = torch.tensor([point.value for point in setup_dict.values()])
-        # PDE is enfoced on normal points.
-        self.pde_mask = torch.tensor([X.point_type == P_Types.NORMAL for X in setup_dict.values()])
-        # U requires gradient for normal or ghost points.
-        self.grad_mask = grad_mask[permute_idx]
-
-        self.N_us_grad = self.grad_mask.sum().item()
-        self.N_points = len(normal_points) + len(boundary_points)
-        self.N_tot_points = len(setup_dict)
-
-
-        if device == "cuda":
-            self._cuda()
-
-        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_points, device=self.device)
+        return adj_mat_sp
 
     def split(self, Ns):
         """ Split grid into subgrids. """
