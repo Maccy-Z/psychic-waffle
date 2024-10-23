@@ -75,42 +75,6 @@ class UGrid(abc.ABC):
         self.pde_mask = self.pde_mask.cuda(non_blocking=True)
 
 
-# class UGrid2D(UGrid):
-#     """
-#     Contains grid of points for solving PDE.
-#     Handles and saves boundary conditions and masks.
-#     """
-#
-#     def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None):
-#         """
-#         Boundary conditions set as a tensor of shape [Nx, Ny], with NaN for no boundary, including center.
-#         """
-#         super().__init__(X_grid)
-#         self.N_dim = 2
-#
-#         self._init_bc_dict(dirichlet_bc, neuman_bc)
-#
-#     def _init_bc_dict(self, dirichlet_bc, neuman_bc):
-#         if dirichlet_bc is None:
-#             dirichlet_bc = torch.full(self.N.tolist(), float("nan"))
-#         else:
-#             assert torch.all(torch.isnan(dirichlet_bc[1:-1, 1:-1])), f'{dirichlet_bc = } is not NaN in middle'
-#
-#         if neuman_bc is None:
-#             neuman_bc = torch.full(self.N.tolist(), float("nan"))
-#         else:
-#             assert torch.all(torch.isnan(neuman_bc[1:-1, 1:-1])), f'{neuman_bc = } is not NaN in middle'
-#
-#             corner_idx = [(0, 0), (0, -1), (-1, 0), (-1, -1)]
-#             corners = torch.stack([neuman_bc[idx] for idx in corner_idx])
-#             assert torch.all(torch.isnan(corners)), f'{neuman_bc = } Undefined Neuman corner values.'
-#
-#         self.dirichlet_bc = dirichlet_bc
-#         self.neuman_bc = neuman_bc
-#
-#     def __repr__(self):
-#         return f"Grid of values, {self.us}"
-
 
 class UGrid2D(UGrid):
     def __init__(self, X_grid: XGrid, dirichlet_bc: Tensor = None, neuman_bc: Tensor = None):

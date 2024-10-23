@@ -200,7 +200,7 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
     N_nodes = len(point_dict)
     kdtree = KDTree(Xs_all)
 
-    pde_dict = {idx: point for idx, point in point_dict.items() if point.point_type in P_Types.GRAD}
+    pde_dict = {idx: point for idx, point in point_dict.items() if P_Types.GRAD in point.point_type}
 
     edge_idxs, weights, neighbors = [], [], {}
     for j, point in pde_dict.items():
@@ -222,12 +222,12 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
 
                 break
         else:
-            print("Error reached")
-            save_dict = {"X": X, "neigh_Xs": neigh_Xs, "err": err}
-            import pickle
-            pickle.dump(save_dict, open(f"save.pkl", "wb"))
-            exit("Error")
-            continue
+            # print("Error reached")
+            # save_dict = {"X": X, "neigh_Xs": neigh_Xs, "err": err}
+            # import pickle
+            # pickle.dump(save_dict, open(f"save.pkl", "wb"))
+            # exit("Error")
+            # continue
 
             c_print(f"Using looser tolerance for point {j}, {X=}", color="bright_magenta")
             # Using Try again with looser tolerance, probably from fp64 -> fp32 rounding.

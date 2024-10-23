@@ -47,7 +47,7 @@ class FinDerivCalc(MessagePassing, BaseDerivCalc):
 
 class FinDerivCalcSPMV(BaseDerivCalc):
     """ Using sparse matrix-vector multiplication to compute Grad^n(u) using finite differences. """
-    def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask: torch.Tensor, grad_mask: torch.Tensor, N_points, device="cpu"):
+    def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask: torch.Tensor, grad_mask: torch.Tensor, N_us_tot, device="cpu"):
         """ Initialise sparse matrices from finite difference graphs.
             Compute d = A * u [pde_mask]. Compile pde_mask into A.
             Jacobian is A[pde_mask][us_mask]
@@ -60,14 +60,14 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         self.jac_spms = []      # shape = [N_diff], [N_pde, N_points]
 
         # Order (0, 0) is original node value
-        only_us = torch.eye(N_points, device=self.device).to_sparse_coo()
+        only_us = torch.eye(N_us_tot, device=self.device).to_sparse_coo()
         only_us = self.coo_row_select(only_us)
         only_us = self.coo_col_select(only_us)
-        self.jac_spms.append(only_us.to_sparse_csr())
+        self.jac_spms.append(only_us.to_sparse_csr())   # shape = [N_diff], [N_pde, N_points]
         for order, graph in fd_graphs.items():
             edge_idx = graph.edge_idx
             edge_coeff = graph.weights
-            sp_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_points, N_points)).T.coalesce()
+            sp_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_us_tot, N_us_tot)).T.coalesce()
             sp_mat = self.coo_row_select(sp_mat)        # shape = [N_pde, N_points]
             sp_mat_fwd = sp_mat.to_sparse_csr()
             self.fd_spms[order] = sp_mat_fwd
@@ -87,7 +87,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
             derivatives[order] = torch.mv(spm, Xs)
         return derivatives
 
-    def jacobian(self) -> list[torch.sparse.FloatTensor]:
+    def jacobian(self) -> list[torch.FloatTensor]:
         """ Linear transform, so jacobian is the same as the sparse matrix.
             return.shape: [N_diff], [N_pde, N_points]
          """

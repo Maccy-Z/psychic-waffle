@@ -11,5 +11,5 @@ class P_Types(Flag):
 
 
 print(P_Types.NORMAL in P_Types.GRAD)
-
+print(P_Types.BOTH in P_Types.DERIV)
 

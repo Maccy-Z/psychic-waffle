@@ -65,66 +65,6 @@ class CSRTransposer:
         return A_T_csr
 
 
-# class SparseMatMul(Function):
-#     @staticmethod
-#     def forward(ctx, A, A_T, b):
-#         """
-#         Forward pass for sparse matrix-vector multiplication.
-#         Args:
-#             A (torch.sparse_csr_tensor): Sparse CSR matrix of shape (m, n).
-#             A_T (torch.sparse_csr_tensor): Transpose of A, shape (n, m).
-#             b (torch.Tensor): Dense vector of shape (n,).
-#         Returns:
-#             torch.Tensor: Resulting vector of shape (m,).
-#         """
-#         # Save the transposed sparse matrix for backward
-#         ctx.save_for_backward(A_T)
-#
-#         # Perform sparse-dense matrix multiplication
-#         output = torch.mv(A, b)
-#         return output
-#
-#     @staticmethod
-#     def backward(ctx, grad_output):
-#         """
-#         Backward pass to compute gradient with respect to b.
-#         Args: grad_output (torch.Tensor): Gradient of the loss with respect to the output, shape (m,).
-#         Returns:
-#             Tuple[None, None, torch.Tensor]: Gradients with respect to inputs.
-#                                              None for A and A_T (since they are constants), and gradient with respect to b.
-#         """
-#         (A_T,) = ctx.saved_tensors
-#
-#         # Compute gradient with respect to b: A^T * grad_output
-#         grad_b = torch.mv(A_T, grad_output) # torch.sparse.mm(A_T, grad_output.unsqueeze(1)).squeeze(1)
-#
-#         return None, None, grad_b
-
-#
-# class SparseMatMulOperator:
-#     def __init__(self, A):
-#         """
-#         Initialize the operator with a sparse CSR matrix A.
-#         Args: A (torch.sparse_csr_tensor): Sparse CSR matrix of shape (m, n).
-#         """
-#         # self.A = A
-#         self.A = torch.sparse_csr_tensor(A.crow_indices().to(torch.int32), A.col_indices().to(torch.int32), A.values(), A.size())
-#         # Compute the transpose once and cache it
-#         self.A_T = self.A.t().to_sparse_csr() # .coalesce_csr()
-#
-#
-#     def matmul(self, b):
-#         """
-#         Perform the multiplication A * b.
-#         Args: b (torch.Tensor): Dense vector of shape (n,).
-#         Returns: torch.Tensor: Resulting vector of shape (m,).
-#         """
-#         return SparseMatMul.apply(self.A, self.A_T, b)
-#
-#     def __repr__(self):
-#         return f"SparseMatMulOperator with tensor: {self.A}"
-
-
 class CSRSummer:
     """ Sum together multiple sparse CSR tensors with the same sparsity pattern. """
     def __init__(self, B_list: list[torch.Tensor], check_sparsity=False):
@@ -259,6 +199,7 @@ class CSRSummer:
     def blank_csr(self):
         J = torch.sparse_csr_tensor(self.output_crow_indices, self.output_col_indices, torch.empty_like(self.output_col_indices), size=self.size)
         return J
+
 
 class CSRRowMultiplier:
     def __init__(self, A_csr: torch.Tensor):

@@ -82,6 +82,7 @@ class GraphJacobCalc(JacobCalc):
             dR/dD.shape = [N_pde, N_derivs]
             dD/dU.shape = [N_pde, N_derivs, N_u_grad]
 
+            dR_i/dU_j = sum_k df_i/dD_k * dD_ik/dU_j
         """
 
         us_all = self.u_graph.us  # Shape = [N_total].
@@ -90,9 +91,11 @@ class GraphJacobCalc(JacobCalc):
         # 1) Finite differences D. shape = [N_pde, N_derivs]
         grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
         u_dus = torch.stack(list(grads_dict.values()), dim=-1)    # shape = [N_pde, N_derivs]
+        print(u_dus.shape)
+        exit(9)
 
         # 2) dD/dU. shape = [N_derivs, N_u_grad]
-        dDdU = self.deriv_calc.jacobian() # shape = [N_derivs][N_pde, N_total]
+        dDdU = self.deriv_calc.jac_spms # shape = [N_derivs][N_pde, N_total]
 
         # 3) dR/dD. shape = [N_pde, N_derivs]
         dRdD, residuals = func.vmap(self.resid_grad_val)(u_dus, Xs)
@@ -105,6 +108,19 @@ class GraphJacobCalc(JacobCalc):
 
         # 4.2) Sum over k: sum_k partials_ijk
         jacobian = self.csr_summer.sum(partials)
+
+        # 5.1) Neumann boundary conditions: R = grad_n(u) - constant
+        bc_deriv_pred = u_dus[self.u_graph.deriv_mask]      # shape = [N_bc]
+        bc_deriv_true = self.u_graph.deriv_val
+        bc_residuals = bc_deriv_pred - bc_deriv_true
+
+        residuals = torch.cat([residuals, bc_residuals])
+
+        # 5.2_ Neumann jacobian: dR/dD = 1, so select corresponding rows of jacobian.
+        for deriv_idx, deriv_val in self.u_graph.bc_deriv_order:
+            jacobian[deriv_idx] = deriv_val
+
+
         return jacobian, residuals
 
     def jacob_transpose(self):

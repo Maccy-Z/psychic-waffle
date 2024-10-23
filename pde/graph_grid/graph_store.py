@@ -5,13 +5,27 @@ from enum import Flag, auto
 
 
 class P_Types(Flag):
-    NORMAL = auto() # Standard PDE: u = f(us, x) enforced on this point.
-    BOUNDARY = auto()   # Dirichlet: u = Dirichlet(x) enforced on this point.
-    DERIV = auto()  # deriv(u, us) = Neumann(x) enforced on this point. Can be used as central Neumann derivative or edge, depending on other nodes.
-    GHOST = auto() # No function on point. Ghost point. u function inherited from central DERIV point.
+    """ Types of points.
+        Note: Checks should be done as PRIMITIAVE in POINT_VALUE.
+    """
+    # Primitive types
+    PDE = auto() # Standard PDE: u = f(us, x) enforced on this point.
+    NONE = auto() # No function on point. Ghost point. u function inherited from central DERIV point.
 
-    BOTH = BOUNDARY | DERIV
-    GRAD = NORMAL | GHOST # u requires fitting on point.
+    FIX = auto()   # Dirichlet: u = Dirichlet(x) enforced on this point.
+    DERIV = auto()  # deriv(u, us) = Neumann(x) enforced on this point. Can be used as central Neumann derivative or edge, depending on other nodes.
+
+    GRAD = auto()   # u requires fitting on point.
+
+    # User BC types
+    DirichBC = FIX  # Dirichlet BC enforced on point.
+    NeumCentralBC = DERIV | PDE | GRAD # Neumann BC + PDE enforced on point.
+    NeumOffsetBC = DERIV | GRAD # Only Neumann BC on point.
+    BothBC = FIX | DERIV  # Both Dirichlet and Neumann BC enforced on point.
+    Ghost = NONE | GRAD # Ghost point
+
+    # Normal point
+    Normal = PDE | GRAD # Standard PDE enforced on point.
 
 
 @dataclass
@@ -23,6 +37,10 @@ class Point:
     """ value:  If NORMAL, value = initial value. 
                 If BOUNDARY, value = boundary value. 
         derivatives: If DERIV, derivatives = {((x, y), value), ...} where (x, y) is the derivative order.  """
+
+    def __post_init__(self):
+        if P_Types.DERIV in self.point_type:
+            assert self.derivatives is not None, "Derivatives must be provided for DERIV points."
 
     def __repr__(self):
         if self.value is None:

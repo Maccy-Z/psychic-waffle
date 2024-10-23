@@ -8,7 +8,7 @@ import abc
 class UBase(abc.ABC):
     device: torch.device | str
     N_dim: int
-    N_points: int  # Number of real points.
+    N_us_real: int  # Number of real points.
 
     us: Tensor  # Value of u at all points.
     Xs: Tensor  # Coordinates of all points. Shape = [N_total, 2]

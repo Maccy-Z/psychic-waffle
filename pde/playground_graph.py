@@ -14,10 +14,19 @@ def new_graph(cfg):
     cfg = Config()
 
     Xs_perim = gen_perim(1, 1, 0.05)
-    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([32, 32]), device="cpu")
-    Xs_bc = [Point(P_Types.BOUNDARY, X, value=0.) for X in Xs_perim]
-    Xs_bulk = [Point(P_Types.NORMAL, X, value= 0.) for X in Xs_bulk]
-    Xs_all = {i: X for i, X in enumerate(Xs_bc + Xs_bulk)}
+    perim_mask = (Xs_perim[:, 0] == 0)
+    Xs_neumann = Xs_perim[perim_mask]
+    Xs_dirich = Xs_perim[~perim_mask]
+
+
+    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([12, 12]), device="cpu")
+    #Xs_bc = [Point(P_Types.FIX_BC, X, value=0.) for X in Xs_perim]
+    Xs_fix = [Point(P_Types.DirichBC, X, value=0.) for X in Xs_dirich]
+    deriv = {(1, 0): 1.}
+    Xs_deriv = [Point(P_Types.NeumOffsetBC, X, value=0., derivatives=deriv) for X in Xs_neumann]
+
+    Xs_bulk = [Point(P_Types.Normal, X, value= 0.) for X in Xs_bulk]
+    Xs_all = {i: X for i, X in enumerate(Xs_deriv + Xs_fix + Xs_bulk)}
     u_graph = UGraph(Xs_all, grad_acc=4, device=cfg.DEVICE)
 
     with open("save_u_graph.pth", "wb") as f:
@@ -47,7 +56,7 @@ def main():
     # Make computation graph
     Xs_perim = gen_perim(1, 1, 0.1)
     Xs_bulk = test_grid(0.02, 0.98, torch.tensor([12, 12]), device="cpu")
-    Xs_bc = [Point(P_Types.BOUNDARY, X, 0.) for X in Xs_perim]
+    Xs_bc = [Point(P_Types.FIX, X, 0.) for X in Xs_perim]
     Xs_bulk = [Point(P_Types.NORMAL, X, 0.) for X in Xs_bulk]
     Xs_all = {i: X for i, X in enumerate(Xs_bc + Xs_bulk)}
     u_graph = UGraph(Xs_all, device=cfg.DEVICE)
