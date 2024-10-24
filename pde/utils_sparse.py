@@ -1,8 +1,7 @@
 import torch
 import cupy as cp
-
-from main import values_A
-
+import numpy as np
+from matplotlib import pyplot as plt
 
 def gen_rand_sp_matrix(rows, cols, density, device="cpu"):
     num_nonzeros = int(rows * cols * density)
@@ -12,6 +11,27 @@ def gen_rand_sp_matrix(rows, cols, density, device="cpu"):
 
     edge_index = torch.stack([row_indices, col_indices], dim=0)
     return torch.sparse_coo_tensor(edge_index, values, (rows, cols)).to(device).to_sparse_csr()
+
+def plot_sparsity(A):
+    sparse_coo = A.to_sparse_coo().coalesce()
+    indices = sparse_coo.indices()
+    rows = indices[0].cpu().numpy()
+    cols = indices[1].cpu().numpy()
+    size = sparse_coo.size()
+    # Create dense binary matrix
+
+    dense_binary = np.zeros(size, dtype=np.int32)
+    dense_binary[rows, cols] = 1
+
+    # Plot using imshow
+    plt.figure(figsize=(6, 5))
+    plt.imshow(dense_binary, cmap='Greys', interpolation='none', aspect='auto')
+    plt.xlabel('Columns')
+    plt.ylabel('Rows')
+    plt.title('Sparsity Pattern')
+    plt.gca().invert_yaxis()
+    plt.show()
+
 
 class CsrBuilder:
     """ Incrementally build a sparse CSR tensor from dense blocks. """
@@ -489,14 +509,14 @@ if __name__ == "__main__":
     rows, cols = 100_000, 100_000
     density = 0.001
 
-    A_coo = generate_random_sparse_matrix(rows, cols, density).cuda()
+    A_coo = gen_rand_sp_matrix(rows, cols, density).cuda()
     A_csr = A_coo.to_sparse_csr()
     print("Original CSR Matrix A:")
     print()
 
     # Initialize the transposer with the first matrix
     print("Precomputing Transposer...")
-    transposer = SparseCSRTransposer(A_csr, check_sparsity=False)
+    transposer = CSRTransposer(A_csr, check_sparsity=False)
     print("Transposer Ready")
 
     # Create multiple CSR matrices with the same sparsity pattern but different values

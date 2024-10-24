@@ -13,17 +13,17 @@ from pde.loss import DummyLoss
 def new_graph(cfg):
     cfg = Config()
 
-    Xs_perim = gen_perim(1, 1, 0.2)
+    Xs_perim = gen_perim(1, 1, 0.1)
     perim_mask = (Xs_perim[:, 0] == 0)
     Xs_neumann = Xs_perim[perim_mask]
     Xs_dirich = Xs_perim[~perim_mask]
 
 
-    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([6, 6]), device="cpu")
+    Xs_bulk = test_grid(0.02, 0.98, torch.tensor([10, 10]), device="cpu")
     #Xs_bc = [Point(P_Types.FIX_BC, X, value=0.) for X in Xs_perim]
     Xs_fix = [Point(P_Types.DirichBC, X, value=0.) for X in Xs_dirich]
     deriv = ([(1, 0)], 0.)
-    Xs_deriv = [Point(P_Types.DirichBC, X, value=0., derivatives=deriv) for X in Xs_neumann]
+    Xs_deriv = [Point(P_Types.NeumOffsetBC, X, value=0., derivatives=deriv) for X in Xs_neumann]
 
     Xs_bulk = [Point(P_Types.Normal, X, value= 0.) for X in Xs_bulk]
     Xs_all = {i: X for i, X in enumerate(Xs_deriv + Xs_fix + Xs_bulk)}

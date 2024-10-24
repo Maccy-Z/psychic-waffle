@@ -56,15 +56,16 @@ class UGraph(UBase):
             edge_idx, fd_weights, neighbors = calc_coeff(setup_dict, grad_acc, degree)
             self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
 
-        # 3) Create an overall adjacency matrix for jacobian calculation.
-        adj_mat_sp = self._adj_mat()
+        # 3) (optional) Permute the adjacency matrix to be as diagonal as possible.
+        if False:
+            adj_mat_sp = self._adj_mat()
+            permute_idx = diag_permute(adj_mat_sp)
+            permute_idx = torch.from_numpy(permute_idx.copy())
+            perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
+        else:
+            perm_map = {i: i for i in range(self.N_us_tot)}
 
-        # 4) Permute the adjacency matrix to be as diagonal as possible.
-        permute_idx = diag_permute(adj_mat_sp)
-        permute_idx = torch.from_numpy(permute_idx.copy())
-        #perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
-        perm_map = {new_idx: new_idx for new_idx, _ in enumerate(permute_idx)}
-        # 4.1) Permute everything to new indices.
+        # 3.1) Permute everything to new indices.
         for degree, graph in self.graphs.items():
             edge_idx = graph.edge_idx
             edge_idx = torch.tensor([perm_map[idx.item()] for idx in edge_idx.flatten()]).reshape(edge_idx.shape)
@@ -80,7 +81,7 @@ class UGraph(UBase):
         # U requires gradient for normal or ghost points.
         self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in setup_dict.values()])
 
-        # 5) Derivative boundary conditions. Linear equations N X derivs - value = 0
+        # 4) Derivative boundary conditions. Linear equations N X derivs - value = 0
         deriv_orders, deriv_val, neum_mask = {}, [], []
         for point_num, point in setup_dict.items():
             if T.DERIV in point.point_type:

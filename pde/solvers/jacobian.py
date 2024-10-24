@@ -9,7 +9,7 @@ from pde.cartesian_grid.PDE_Grad import PDEForward
 from pde.utils import get_split_indices, clamp
 from pde.BasePDEGrad import PDEFwdBase
 from pde.graph_grid.PDE_Grad import PDEForward as PDEForwardGraph
-from pde.utils_sparse import CSRSummer, CSRRowMultiplier, CSRTransposer, CsrBuilder, CSRConcatenator
+from pde.utils_sparse import CSRSummer, CSRRowMultiplier, CSRTransposer, CsrBuilder, CSRConcatenator, plot_sparsity
 from pde.graph_grid.U_graph import UGraph
 
 def get_jac_calc(us_grid: UBase, pde_forward: PDEFwdBase, cfg):
@@ -69,6 +69,8 @@ class GraphJacobCalc(JacobCalc):
         self.csr_summer = CSRSummer(deriv_jac_list)
 
         dummy_jac = self.csr_summer.blank_csr()
+        plot_sparsity(dummy_jac)
+        # exit(())
         self.transposer = CSRTransposer(dummy_jac, check_sparsity=True)
 
         if u_graph.neumann_mode:
