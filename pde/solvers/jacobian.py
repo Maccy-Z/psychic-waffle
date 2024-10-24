@@ -9,7 +9,7 @@ from pde.cartesian_grid.PDE_Grad import PDEForward
 from pde.utils import get_split_indices, clamp
 from pde.BasePDEGrad import PDEFwdBase
 from pde.graph_grid.PDE_Grad import PDEForward as PDEForwardGraph
-from pde.utils_sparse import CSRSummer, CSRRowMultiplier, CSRTransposer
+from pde.utils_sparse import CSRSummer, CSRRowMultiplier, CSRTransposer, CsrBuilder, CSRConcatenator
 from pde.graph_grid.U_graph import UGraph
 
 def get_jac_calc(us_grid: UBase, pde_forward: PDEFwdBase, cfg):
@@ -61,6 +61,7 @@ class GraphJacobCalc(JacobCalc):
         self.u_graph = u_graph
         self.pde_fwd = pde_fwd
         self.deriv_calc = u_graph.deriv_calc
+        self.resid_grad_val = func.grad_and_value(self.pde_fwd.residuals, argnums=0)
 
         # Precompute transforms with jacobian structure
         deriv_jac_list = self.u_graph.deriv_calc.jacobian()
@@ -70,7 +71,9 @@ class GraphJacobCalc(JacobCalc):
         dummy_jac = self.csr_summer.blank_csr()
         self.transposer = CSRTransposer(dummy_jac, check_sparsity=True)
 
-        self.resid_grad_val = func.grad_and_value(self.pde_fwd.residuals, argnums=0)
+        if u_graph.neumann_mode:
+            self.deriv_calc_bc = u_graph.deriv_calc_bc
+            self.concatenator = CSRConcatenator(dummy_jac, self.deriv_calc_bc.jac_mat)
 
     @torch.no_grad()
     def jacobian(self):
@@ -91,8 +94,6 @@ class GraphJacobCalc(JacobCalc):
         # 1) Finite differences D. shape = [N_pde, N_derivs]
         grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
         u_dus = torch.stack(list(grads_dict.values()), dim=-1)    # shape = [N_pde, N_derivs]
-        print(u_dus.shape)
-        exit(9)
 
         # 2) dD/dU. shape = [N_derivs, N_u_grad]
         dDdU = self.deriv_calc.jac_spms # shape = [N_derivs][N_pde, N_total]
@@ -109,17 +110,17 @@ class GraphJacobCalc(JacobCalc):
         # 4.2) Sum over k: sum_k partials_ijk
         jacobian = self.csr_summer.sum(partials)
 
-        # 5.1) Neumann boundary conditions: R = grad_n(u) - constant
-        bc_deriv_pred = u_dus[self.u_graph.deriv_mask]      # shape = [N_bc]
-        bc_deriv_true = self.u_graph.deriv_val
-        bc_residuals = bc_deriv_pred - bc_deriv_true
+        if self.u_graph.neumann_mode:
+            # 5.1) Neumann boundary conditions: R = grad_n(u) - constant
+            bc_deriv_pred = self.deriv_calc_bc.derivative(us_all)  # shape = [N_bc_derivs]
+            bc_deriv_true = self.u_graph.deriv_val
+            bc_residuals = bc_deriv_pred - bc_deriv_true
+            # print(f'{bc_residuals = }')
+            residuals = torch.cat([residuals, bc_residuals])        # shape = [N_pde+N_bc]
 
-        residuals = torch.cat([residuals, bc_residuals])
-
-        # 5.2_ Neumann jacobian: dR/dD = 1, so select corresponding rows of jacobian.
-        for deriv_idx, deriv_val in self.u_graph.bc_deriv_order:
-            jacobian[deriv_idx] = deriv_val
-
+            # 5.2_ Neumann jacobian: dR/dD = 1, so select corresponding rows of jacobian.
+            bc_deriv_jac = self.deriv_calc_bc.jac_mat
+            jacobian = self.concatenator.cat(jacobian, bc_deriv_jac)  # shape = [N_pde+N_bc, N_total]
 
         return jacobian, residuals
 
@@ -211,7 +212,7 @@ class SparseJacobCalc(JacobCalc):
         self.block_size = self.jacob_shape // self.num_blocks
         self.us_stride = (self.sol_grid.N[1] + 1).item() # Stride of us in grid. Second element of N is the number of points in x direction. Overestimate.
 
-        self.csr_jac_builder = CSR_Builder(self.jacob_shape, self.jacob_shape, device=self.device)
+        self.csr_jac_builder = CsrBuilder(self.jacob_shape, self.jacob_shape, device=self.device)
 
     def jacobian(self):
         # Build up Jacobian from sections of PDE and us for efficiency.
@@ -266,92 +267,3 @@ class SparseJacobCalc(JacobCalc):
         return jacobian, residuals
 
 
-class CSR_Builder:
-    """ Incrementally build a sparse CSR tensor from dense blocks. """
-    def __init__(self, total_rows, total_cols, device=None):
-        """
-        Initializes the builder for a CSR sparse tensor.
-        Parameters:
-        - total_rows: int, total number of rows in the matrix.
-        - total_cols: int, total number of columns in the matrix.
-        - device: torch device (optional).
-        """
-        self.dtype = torch.int64
-        self.total_rows = total_rows
-        self.total_cols = total_cols
-        self.device = device
-
-        self.zero_ten = torch.tensor([0], dtype=self.dtype, device=self.device)
-
-        # Internal storage for CSR components
-        self.nnz_per_row = torch.tensor([0] * self.total_rows, device=self.device, dtype=self.dtype)  # Number of non-zero elements per row
-        self.col_indices = []                # Column indices of non-zero elements
-        self.values = []                     # Non-zero values
-
-    def add_block(self, block_dense_values, block_row_offset, block_col_offset):
-        """
-        Adds a dense block to the CSR components using efficient tensor operations.
-
-        Parameters:
-        - block_dense_values: 2D tensor (n x m), dense block of values.
-        - block_row_offset: int, the starting row index of the block in the overall matrix.
-        - block_col_offset: int, the starting column index of the block in the overall matrix.
-        """
-        n, m = block_dense_values.shape
-        crow_idxs, col_idxs, values = self.to_csr(block_dense_values)
-
-        # Count non-zero elements per row in the block
-        counts = crow_idxs[1:] - crow_idxs[:-1]
-
-        # Update nnz_per_row for the corresponding global rows
-        # Using scatter_add for efficient batch updates
-        self.nnz_per_row[block_row_offset:block_row_offset + n] += counts
-
-        # Calculate global column indices
-        global_cols = col_idxs + block_col_offset
-        self.col_indices.append(global_cols)
-
-        # Extract the non-zero values
-        non_zero_values = values
-        self.values.append(non_zero_values)
-
-    def build(self):
-        """
-        Builds and returns the sparse CSR tensor from the accumulated components.
-
-        Returns:
-        - csr_tensor: torch.sparse_csr_tensor, the constructed sparse CSR tensor.
-        """
-        # Compute crow_indices by cumulatively summing nnz_per_row
-        crow_indices = torch.cat([
-            self.zero_ten,
-            torch.cumsum(self.nnz_per_row, dim=0, dtype=self.dtype)
-        ])
-
-        # Convert col_indices and values to tensors
-        col_indices_tensor = torch.cat(self.col_indices).to(self.dtype)
-        values_tensor = torch.cat(self.values)
-
-        # Create the sparse CSR tensor
-        csr_tensor = torch.sparse_csr_tensor(
-            crow_indices,
-            col_indices_tensor,
-            values_tensor,
-            size=(self.total_rows, self.total_cols),
-        )
-        return csr_tensor
-
-    def reset(self):
-        self.nnz_per_row = torch.tensor([0] * self.total_rows, device=self.device, dtype=torch.int32)  # Number of non-zero elements per row
-        self.col_indices = []                # Column indices of non-zero elements
-        self.values = []                     # Non-zero values
-
-    def to_csr(self, A_torch):
-        """ Cupy is faster than torch """
-        A_cp = cp.asarray(A_torch)
-        A_csr_cp = cp.sparse.csr_matrix(A_cp)
-
-        crow_indices = torch.from_dlpack(A_csr_cp.indptr)
-        col_indices = torch.from_dlpack(A_csr_cp.indices)
-        values = torch.from_dlpack(A_csr_cp.data)
-        return crow_indices, col_indices, values

@@ -28,7 +28,7 @@ class FwdConfig:
     # Newton Raphson PDE solver settings
     lin_mode: LinMode = LinMode.AMGX
     N_iter: int = 7
-    lr: float = 1
+    lr: float = 1.
     acc: float = 0.
 
     def __post_init__(self):
@@ -46,7 +46,7 @@ class FwdConfig:
                 "tolerance": 1e-4,
                 "max_iters": 51,
                 # "gmres_n_restart": 75,
-                "smoother": "BLOCK JACOBI",
+                #"smoother": "BLOCK JACOBI",
                 "preconditioner": {
                     "solver": "NOSOLVER",
                     # "solver": "AMG",
@@ -54,7 +54,7 @@ class FwdConfig:
                     # "selector": "SIZE_2",
                     # "max_iters": 1,
                     # "cycle": "V",
-                    # "max_levels": 5,
+                    # "max_levels": 2,
                 }
             }
         }

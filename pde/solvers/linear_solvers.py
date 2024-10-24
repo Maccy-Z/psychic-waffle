@@ -26,6 +26,7 @@ class LinearSolver:
                 self.solver = self.cuda_dense
             elif mode == LinMode.SPARSE:
                 self.solver = self.cuda_sparse
+                self.preproc = self.preproc_sparse
             elif mode == LinMode.ITERATIVE:
                 self.solver = self.cuda_iterative
                 self.cfg = cfg
@@ -64,15 +65,14 @@ class LinearSolver:
         x = torch.from_dlpack(x)
         return x
 
-    def cuda_sparse(self, A: torch.Tensor, b: torch.Tensor):
-        A_cupy = cp.from_dlpack(A)
+    def cuda_sparse(self, A_cp: cp.array, b: torch.Tensor):
+        #A_cupy = cp.from_dlpack(A)
         b_cupy = cp.from_dlpack(b)
 
         # Convert the dense matrix A_cupy to a sparse CSR matrix
-        A_sparse_cupy = sp.csr_matrix(A_cupy)
 
         # Solve the sparse linear system Ax = b using CuPy
-        x = sp_linalg.spsolve(A_sparse_cupy, b_cupy)
+        x = sp_linalg.spsolve(A_cp, b_cupy)
 
         x = torch.from_dlpack(x)
         return x

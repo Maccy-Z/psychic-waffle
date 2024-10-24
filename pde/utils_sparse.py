@@ -1,5 +1,8 @@
 import torch
-from torch.autograd import Function
+import cupy as cp
+
+from main import values_A
+
 
 def gen_rand_sp_matrix(rows, cols, density, device="cpu"):
     num_nonzeros = int(rows * cols * density)
@@ -8,7 +11,98 @@ def gen_rand_sp_matrix(rows, cols, density, device="cpu"):
     values = torch.randn(num_nonzeros)  # Random values for the non-zero entries
 
     edge_index = torch.stack([row_indices, col_indices], dim=0)
-    return torch.sparse_coo_tensor(edge_index, values, (rows, cols)).to(device)
+    return torch.sparse_coo_tensor(edge_index, values, (rows, cols)).to(device).to_sparse_csr()
+
+class CsrBuilder:
+    """ Incrementally build a sparse CSR tensor from dense blocks. """
+    def __init__(self, total_rows, total_cols, device=None):
+        """
+        Initializes the builder for a CSR sparse tensor.
+        Parameters:
+        - total_rows: int, total number of rows in the matrix.
+        - total_cols: int, total number of columns in the matrix.
+        - device: torch device (optional).
+        """
+        self.dtype = torch.int64
+        self.total_rows = total_rows
+        self.total_cols = total_cols
+        self.device = device
+
+        self.zero_ten = torch.tensor([0], dtype=self.dtype, device=self.device)
+
+        # Internal storage for CSR components
+        self.nnz_per_row = torch.tensor([0] * self.total_rows, device=self.device, dtype=self.dtype)  # Number of non-zero elements per row
+        self.col_indices = []                # Column indices of non-zero elements
+        self.values = []                     # Non-zero values
+
+    def add_block(self, block_dense_values, block_row_offset, block_col_offset):
+        """
+        Adds a dense block to the CSR components using efficient tensor operations.
+
+        Parameters:
+        - block_dense_values: 2D tensor (n x m), dense block of values.
+        - block_row_offset: int, the starting row index of the block in the overall matrix.
+        - block_col_offset: int, the starting column index of the block in the overall matrix.
+        """
+        n, m = block_dense_values.shape
+        crow_idxs, col_idxs, values = self.to_csr(block_dense_values)
+
+        # Count non-zero elements per row in the block
+        counts = crow_idxs[1:] - crow_idxs[:-1]
+
+        # Update nnz_per_row for the corresponding global rows
+        # Using scatter_add for efficient batch updates
+        self.nnz_per_row[block_row_offset:block_row_offset + n] += counts
+
+        # Calculate global column indices
+        global_cols = col_idxs + block_col_offset
+        self.col_indices.append(global_cols)
+
+        # Extract the non-zero values
+        non_zero_values = values
+        self.values.append(non_zero_values)
+
+    def build(self):
+        """
+        Builds and returns the sparse CSR tensor from the accumulated components.
+
+        Returns:
+        - csr_tensor: torch.sparse_csr_tensor, the constructed sparse CSR tensor.
+        """
+        # Compute crow_indices by cumulatively summing nnz_per_row
+        crow_indices = torch.cat([
+            self.zero_ten,
+            torch.cumsum(self.nnz_per_row, dim=0, dtype=self.dtype)
+        ])
+
+        # Convert col_indices and values to tensors
+        col_indices_tensor = torch.cat(self.col_indices).to(self.dtype)
+        values_tensor = torch.cat(self.values)
+
+        # Create the sparse CSR tensor
+        csr_tensor = torch.sparse_csr_tensor(
+            crow_indices,
+            col_indices_tensor,
+            values_tensor,
+            size=(self.total_rows, self.total_cols),
+        )
+        return csr_tensor
+
+    def reset(self):
+        self.nnz_per_row = torch.tensor([0] * self.total_rows, device=self.device, dtype=torch.int32)  # Number of non-zero elements per row
+        self.col_indices = []                # Column indices of non-zero elements
+        self.values = []                     # Non-zero values
+
+    def to_csr(self, A_torch):
+        """ Cupy is faster than torch """
+        A_cp = cp.asarray(A_torch)
+        A_csr_cp = cp.sparse.csr_matrix(A_cp)
+
+        crow_indices = torch.from_dlpack(A_csr_cp.indptr)
+        col_indices = torch.from_dlpack(A_csr_cp.indices)
+        values = torch.from_dlpack(A_csr_cp.data)
+        return crow_indices, col_indices, values
+
 
 class CSRTransposer:
     def __init__(self, csr_matrix, check_sparsity=False):
@@ -232,6 +326,159 @@ class CSRRowMultiplier:
             size=self.size,
             device=self.A_csr.device
         )
+
+
+class CSRConcatenator:
+    def __init__(self, csr_tensor_A, csr_tensor_B):
+        device = csr_tensor_A.device
+
+        # Total number of rows and columns
+        num_rows_A = csr_tensor_A.shape[0]
+        num_rows_B = csr_tensor_B.shape[0]
+        total_rows = num_rows_A + num_rows_B
+        num_cols = csr_tensor_A.shape[1]
+
+        # Precompute the output crow_indices
+        self.output_crow_indices = torch.zeros(total_rows + 1, dtype=torch.int32, device=device)
+        self.output_crow_indices[1:num_rows_A + 1] = csr_tensor_A.crow_indices()[1:]
+        total_nnz_A = csr_tensor_A.crow_indices()[-1]
+        self.output_crow_indices[num_rows_A + 1:] = total_nnz_A + csr_tensor_B.crow_indices()[1:]
+
+        # Precompute the output col_indices
+        self.output_col_indices = torch.cat([csr_tensor_A.col_indices(), csr_tensor_B.col_indices()]).to(torch.int32)
+
+        # Store the output shape
+        self.output_shape = (total_rows, num_cols)
+
+    def cat(self, csr_A, csr_B):
+        values_A = csr_A.values()
+        values_B = csr_B.values()
+
+        # Concatenate the values efficiently
+        output_values = torch.cat([values_A, values_B])
+
+        # Build and return the output CSR tensor
+        output_csr = torch.sparse_csr_tensor(
+            self.output_crow_indices,
+            self.output_col_indices,
+            output_values,
+            size=self.output_shape
+        )
+        return output_csr
+
+
+def coo_row_select(sparse_coo: torch.sparse_coo_tensor, row_mask) -> torch.sparse_coo_tensor:
+    """
+    Selects rows from a COO sparse tensor based on a row-wise mask.
+    Args:
+        sparse_coo (torch.sparse_coo_tensor): The input sparse COO tensor.
+        row_mask (torch.Tensor): A boolean mask for selecting rows.
+    Returns:
+        torch.sparse_coo_tensor: A new sparse COO tensor with only the selected rows.
+    """
+    # Extract indices and values from the sparse tensor
+    indices = sparse_coo.coalesce().indices()  # Shape: [ndim, nnz]
+    values = sparse_coo.coalesce().values()  # Shape: [nnz]
+
+    # Assume the first dimension corresponds to rows
+    row_indices = indices[0]
+
+    # Create a mask for non-zero elements in the selected rows
+    mask = row_mask[row_indices]
+
+    # Apply the mask to filter indices and values
+    selected_indices = indices[:, mask]
+    selected_values = values[mask]
+
+    # Get the selected row numbers in sorted order
+    selected_rows = row_mask.nonzero(as_tuple=False).squeeze()
+
+    # Ensure selected_rows is 1D
+    if selected_rows.dim() == 0:
+        selected_rows = selected_rows.unsqueeze(0)
+
+    # Create a mapping from old row indices to new row indices
+    # This ensures that the new tensor has contiguous row indices starting from 0
+    # Example: If rows 1 and 3 are selected, row 1 -> 0 and row 3 -> 1 in the new tensor
+    row_mapping = torch.arange(len(selected_rows), device=selected_rows.device)
+    # Create a dictionary-like mapping using scatter
+    mapping = torch.full((sparse_coo.size(0),), -1, dtype=torch.long, device=selected_rows.device)
+    mapping[selected_rows] = row_mapping
+    # Map the selected row indices
+    new_row_indices = mapping[selected_indices[0]]
+
+    if (new_row_indices == -1).any():
+        raise RuntimeError("Some row indices were not mapped correctly.")
+
+    # Replace the row indices with the new row indices
+    new_indices = selected_indices.clone()
+    new_indices[0] = new_row_indices
+
+    # Define the new size: number of selected rows and the remaining dimensions
+    new_size = [row_mask.sum().item()] + list(sparse_coo.size())[1:]
+
+    # Create the new sparse COO tensor
+    new_sparse_coo = torch.sparse_coo_tensor(new_indices, selected_values, size=new_size)
+
+    return new_sparse_coo
+
+
+def coo_col_select(sparse_coo: torch.sparse_coo_tensor, col_mask) -> torch.sparse_coo_tensor:
+    """
+    Selects columns from a COO sparse tensor based on a column-wise mask.
+    Args:
+        sparse_coo (torch.sparse_coo_tensor): The input sparse COO tensor.
+        col_mask (torch.Tensor): A boolean mask for selecting
+    Returns:
+        torch.sparse_coo_tensor: A new sparse COO tensor with only the selected columns.
+    """
+    # Extract indices and values from the sparse tensor
+    sparse_coo = sparse_coo.coalesce()  # Ensure indices are coalesced
+    indices = sparse_coo.indices()      # Shape: [ndim, nnz]
+    values = sparse_coo.values()        # Shape: [nnz]
+
+    # Assume the second dimension corresponds to columns
+    col_indices = indices[1]
+
+    # Create a mask for non-zero elements in the selected columns
+    mask = col_mask[col_indices]
+
+    # Apply the mask to filter indices and values
+    selected_indices = indices[:, mask]
+    selected_values = values[mask]
+
+    # Get the selected column numbers in sorted order
+    selected_cols = col_mask.nonzero(as_tuple=False).squeeze()
+
+    # Ensure selected_cols is 1D
+    if selected_cols.dim() == 0:
+        selected_cols = selected_cols.unsqueeze(0)
+
+    # Create a mapping from old column indices to new column indices
+    # This ensures that the new tensor has contiguous column indices starting from 0
+    row_mapping = torch.arange(len(selected_cols), device=selected_cols.device)
+    # Initialize a mapping tensor with -1 (invalid)
+    mapping = torch.full((sparse_coo.size(1),), -1, dtype=torch.long, device=selected_cols.device)
+    # Assign new indices to the selected columns
+    mapping[selected_cols] = row_mapping
+    # Map the selected column indices
+    new_col_indices = mapping[selected_indices[1]]
+
+    if (new_col_indices == -1).any():
+        raise RuntimeError("Some column indices were not mapped correctly.")
+
+    # Replace the column indices with the new column indices
+    new_indices = selected_indices.clone()
+    new_indices[1] = new_col_indices
+
+    # Define the new size: number of rows remains the same, number of selected columns
+    new_size = list(sparse_coo.size())
+    new_size[1] = col_mask.sum().item()
+
+    # Create the new sparse COO tensor
+    new_sparse_coo = torch.sparse_coo_tensor(new_indices, selected_values, size=new_size)
+
+    return new_sparse_coo
 
 
 # Example Usage

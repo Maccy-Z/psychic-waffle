@@ -22,7 +22,6 @@ class SolverNewton:
         self.jac_calc = jac_calc
         self.device = sol_grid.device
 
-    #@torch.no_grad()
     def find_pde_root(self):
         """
         Find the root of the PDE using Newton Raphson:
@@ -42,6 +41,7 @@ class SolverNewton:
                 # torch.cuda.empty_cache()
                 deltas = self.lin_solver.solve(jac_preproc, residuals)
 
+            deltas *= self.lr
             self.sol_grid.update_grid(deltas)
 
             logging.debug(f'Iteration {i}, Mean residual: {torch.mean(torch.abs(residuals)):.3g}')

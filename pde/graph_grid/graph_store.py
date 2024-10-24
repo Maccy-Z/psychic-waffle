@@ -33,10 +33,10 @@ class Point:
     point_type: P_Types
     X: torch.Tensor
     value: float = None
-    derivatives: dict[tuple, float] = None
+    derivatives: tuple[list[tuple], float] = None
     """ value:  If NORMAL, value = initial value. 
                 If BOUNDARY, value = boundary value. 
-        derivatives: If DERIV, derivatives = {((x, y), value), ...} where (x, y) is the derivative order.  """
+        derivatives: Sum of derivatives = value. derivatives = ([(dx1, dy1), (dx2, dy2)], value).  """
 
     def __post_init__(self):
         if P_Types.DERIV in self.point_type:

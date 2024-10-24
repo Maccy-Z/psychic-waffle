@@ -7,34 +7,31 @@ from pde.graph_grid.graph_utils import diag_permute
 from pde.graph_grid.graph_store import DerivGraph, Point
 from pde.graph_grid.graph_store import P_Types as T
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
-from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV
+from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
 
 
 class UGraph(UBase):
     """ Holder for graph structure. """
-    setup_dict: dict[int, Point]  # [N_nodes, 2]                # Input properties of nodes.
-    Xs: Tensor   # [N_nodes, 2]                # Coordinates of nodes
-    us: Tensor   # [N_nodes]                   # Value at nod
+    Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
+    us: Tensor   # [N_us_tot]                   # Value at nod
     deriv_val: Tensor # [N_deriv_BC]            # Derivative values at nodes for BC
 
-    pde_mask: Tensor  # [N_nodes]                   # Mask for where to enforce PDE on. Bool
-    grad_mask: Tensor  # [N_nodes]                   # Mask for nodes that need to be updated. Bool
-    neumann_mask: Tensor  # [N_nodes]                   # Mask for derivative BC nodes. Bool
-    deriv_mask: Tensor  # [N_nodes, N_derivs]                   # Mask for enforcing derivatives. Bool
+    pde_mask: Tensor  # [N_us_tot]                   # Mask for where to enforce PDE on. Bool
+    grad_mask: Tensor  # [N_us_tot]                   # Mask for nodes that need to be updated. Bool
+    neumann_mask: Tensor  # [N_us_tot]                   # Mask for derivative BC nodes. Bool
+    neumann_mode: bool    # True if there are derivative BCs.
 
     N_us_tot: int         # Total number of points
     N_us_grad: int        # Number of points that need fitting
-    # N_us_real: int
     N_pdes: int           # Number of points to enforce PDEs (excl BC)
 
     graphs: dict[tuple, DerivGraph] # [N_graphs]                  # Gradient graphs for each gradient type.
         # edge_index: torch.Tensor   # [2, num_edges]      # Edges between nodes
         # edge_coeff: torch.Tensor  # [num_edges]       # Finite diff coefficients for each edge
-        # neighbors: list[Tensor]     # [N_nodes, N_neigh]           # Neighborhood for each node
+        # neighbors: list[Tensor]     # [N_us_tot, N_neigh]           # Neighborhood for each node
 
     deriv_calc: FinDerivCalcSPMV
-    bc_deriv_order: list[tuple]  # [N_deriv_BC, 2]     # Derivative order for each derivative BC
-
+    deriv_orders_bc: dict[int, list]  # [N_deriv_BC, 2]     # Derivative order for each derivative BC
 
     def __init__(self, setup_dict: dict[int, Point], grad_acc:int = 2, max_degree:int = 2, device="cpu"):
         """ Initialize the graph with a set of points.
@@ -65,7 +62,8 @@ class UGraph(UBase):
         # 4) Permute the adjacency matrix to be as diagonal as possible.
         permute_idx = diag_permute(adj_mat_sp)
         permute_idx = torch.from_numpy(permute_idx.copy())
-        perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
+        #perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
+        perm_map = {new_idx: new_idx for new_idx, _ in enumerate(permute_idx)}
         # 4.1) Permute everything to new indices.
         for degree, graph in self.graphs.items():
             edge_idx = graph.edge_idx
@@ -82,31 +80,31 @@ class UGraph(UBase):
         # U requires gradient for normal or ghost points.
         self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in setup_dict.values()])
 
-        # 5) Neumann boundary conditions.
-        deriv_pos, deriv_order, deriv_val = [], [], []
+        # 5) Derivative boundary conditions. Linear equations N X derivs - value = 0
+        deriv_orders, deriv_val, neum_mask = {}, [], []
         for point_num, point in setup_dict.items():
             if T.DERIV in point.point_type:
-                for order, val in point.derivatives.items():
-                    deriv_idx = diff_degrees.index(order) + 1
+                orders, val = point.derivatives
+                deriv_orders[point_num] = orders
+                deriv_val.append(val)
+                neum_mask.append(True)
+            else:
+                neum_mask.append(False)
 
+        self.neumann_mode = len(deriv_val) > 0
 
-                    deriv_pos.append(point_num)
-                    deriv_order.append((point_num, deriv_idx))
-                    deriv_val.append(val)
+        if self.neumann_mode:
+            self.deriv_val = torch.tensor(deriv_val)
+            self.deriv_orders_bc = deriv_orders
+            self.neumann_mask = torch.tensor(neum_mask)
 
-        self.deriv_mask = torch.zeros([self.N_us_tot, len(diff_degrees) + 1], dtype=torch.bool)
-        deriv_order = torch.tensor(deriv_order)
-        self.deriv_mask[deriv_order[:, 0], deriv_order[:, 1]] = True
-
-        self.deriv_val = torch.tensor(deriv_val)
-        self.bc_deriv_order = deriv_order
-
-        print(f'{deriv_order = }')
-        exit(9)
         if device == "cuda":
             self._cuda()
 
         self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_us_tot, device=self.device)
+        if self.neumann_mode:
+            self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask, self.grad_mask, self.deriv_orders_bc, self.N_us_tot, device=self.device)
+
 
     def _adj_mat(self):
         adj_mat = []
@@ -128,20 +126,18 @@ class UGraph(UBase):
         adj_mat_sp = torch.sparse_coo_tensor(edge_idxs, dummy_val, (self.N_us_tot, self.N_us_tot))
         return adj_mat_sp
 
-    def split(self, Ns):
-        """ Split grid into subgrids. """
-        pass
-
     def _cuda(self):
         """ Move graph data to CUDA. """
         self.us = self.us.cuda(non_blocking=True)
         self.Xs = self.Xs.cuda(non_blocking=True)
-        self.deriv_val = self.deriv_val.cuda(non_blocking=True)
 
         self.pde_mask = self.pde_mask.cuda(non_blocking=True)
         self.grad_mask = self.grad_mask.cuda(non_blocking=True)
-        self.deriv_mask = self.deriv_mask.cuda(non_blocking=True)
         [graph.cuda() for graph in self.graphs.values()]
+
+        if self.neumann_mode:
+            self.deriv_val = self.deriv_val.cuda(non_blocking=True)
+            self.neumann_mask = self.neumann_mask.cuda(non_blocking=True)
 
 def test_fn(Xs):
     x, y = Xs[0], Xs[1]
