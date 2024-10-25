@@ -44,17 +44,17 @@ class FwdConfig:
                 "solver": "PBICGSTAB",
                 "convergence": "RELATIVE_INI_CORE",
                 "tolerance": 1e-4,
-                "max_iters": 51,
+                "max_iters": 26,
                 # "gmres_n_restart": 75,
                 #"smoother": "BLOCK JACOBI",
                 "preconditioner": {
-                    "solver": "NOSOLVER",
-                    # "solver": "AMG",
-                    # "algorithm": "AGGREGATION",
-                    # "selector": "SIZE_2",
-                    # "max_iters": 1,
-                    # "cycle": "V",
-                    # "max_levels": 2,
+                    # "solver": "NOSOLVER",
+                    "solver": "AMG",
+                    "algorithm": "AGGREGATION",
+                    "selector": "SIZE_2",
+                    "max_iters": 2,
+                    "cycle": "V",
+                    "max_levels": 1,
                 }
             }
         }

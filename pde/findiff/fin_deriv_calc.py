@@ -3,7 +3,7 @@ from torch_geometric.nn import MessagePassing
 
 from pde.graph_grid.graph_store import DerivGraph
 from pde.BaseDerivCalc import BaseDerivCalc
-from pde.utils_sparse import coo_row_select, coo_col_select
+from pde.utils_sparse import coo_row_select, coo_col_select, CSRToInt32
 
 
 class FinDerivCalc(MessagePassing, BaseDerivCalc):
@@ -76,10 +76,10 @@ class FinDerivCalcSPMV(BaseDerivCalc):
             edge_coeff = graph.weights
             sp_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_us_tot, N_us_tot)).T.coalesce()
             sp_mat = coo_row_select(sp_mat, self.eq_mask)        # shape = [N_eqs, N_us_tot]
-            self.fd_spms[order] = sp_mat.to_sparse_csr()
+            self.fd_spms[order] = CSRToInt32(sp_mat.to_sparse_csr())
 
             sp_mat_jac = coo_col_select(sp_mat, self.grad_mask)   # shape = [N_eqs, N_grad]
-            sp_mat_jac = sp_mat_jac.to_sparse_csr()
+            sp_mat_jac = CSRToInt32(sp_mat_jac.to_sparse_csr())
             self.jac_spms.append(sp_mat_jac)
 
 
@@ -90,6 +90,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         derivatives = {(0, 0): Xs[self.eq_mask]}
 
         for order, spm in self.fd_spms.items():
+
             derivatives[order] = torch.mv(spm, Xs)
         return derivatives
 
@@ -123,13 +124,14 @@ class NeumanBCCalc(FinDerivCalcSPMV):
             deriv_mat.append(deriv_row_sum)
 
         deriv_mat = torch.stack(deriv_mat, dim=0).coalesce()
-        self.deriv_mat = deriv_mat.to_sparse_csr()          # shape = [N_eqs, N_us_tot]
+        deriv_mat = deriv_mat.to_sparse_csr()          # shape = [N_eqs, N_us_tot]
+        self.deriv_mat = CSRToInt32(deriv_mat)
 
         self.jac_mat = coo_col_select(deriv_mat, self.grad_mask).to_sparse_csr()   # shape = [N_eqs, N_grad]
+        self.jac_mat = CSRToInt32(self.jac_mat)
 
         del self.fd_spms
         del self.jac_spms
-
 
     def derivative(self, Xs) -> torch.Tensor:
         neumann_resid = torch.mv(self.deriv_mat, Xs)

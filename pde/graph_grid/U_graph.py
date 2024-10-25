@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor
 from cprint import c_print
+from codetiming import Timer
 
 from pde.BaseU import UBase
 from pde.graph_grid.graph_utils import diag_permute
@@ -53,27 +54,15 @@ class UGraph(UBase):
         self.graphs = {}
         for degree in diff_degrees:
             c_print(f"Generating graph for degree {degree}", color="black")
-            edge_idx, fd_weights, neighbors = calc_coeff(setup_dict, grad_acc, degree)
-            self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
+            #with Timer(text="Time taken: {time:.2f}"):
+            with Timer(text="Time to solve: : {:.4f}"):
+                edge_idx, fd_weights, neighbors = calc_coeff(setup_dict, grad_acc, degree)
+                self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
 
-        # 3) (optional) Permute the adjacency matrix to be as diagonal as possible.
-        if False:
-            adj_mat_sp = self._adj_mat()
-            permute_idx = diag_permute(adj_mat_sp)
-            permute_idx = torch.from_numpy(permute_idx.copy())
-            perm_map = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(permute_idx)}
-        else:
-            perm_map = {i: i for i in range(self.N_us_tot)}
+        # # 2.1) Delete unneeded data.
+        # for degree, graph in self.graphs.items():
+        #     graph.neighbors = None      # Dont need anymore.
 
-        # 3.1) Permute everything to new indices.
-        for degree, graph in self.graphs.items():
-            edge_idx = graph.edge_idx
-            edge_idx = torch.tensor([perm_map[idx.item()] for idx in edge_idx.flatten()]).reshape(edge_idx.shape)
-            graph.edge_idx = edge_idx
-            graph.neighbors = None      # Dont need anymore.
-
-        setup_dict = {perm_map[old_idx]: v for old_idx, v in setup_dict.items()}
-        setup_dict = {k: setup_dict[k] for k in sorted(setup_dict.keys())}
         self.Xs = torch.stack([point.X for point in setup_dict.values()])
         self.us = torch.tensor([point.value for point in setup_dict.values()])
         # PDE is enforced on normal points.
@@ -81,7 +70,12 @@ class UGraph(UBase):
         # U requires gradient for normal or ghost points.
         self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in setup_dict.values()])
 
-        # 4) Derivative boundary conditions. Linear equations N X derivs - value = 0
+        if device == "cuda":
+            self._cuda()
+
+        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_us_tot, device=self.device)
+
+        # 3) Derivative boundary conditions. Linear equations N X derivs - value = 0
         deriv_orders, deriv_val, neum_mask = {}, [], []
         for point_num, point in setup_dict.items():
             if T.DERIV in point.point_type:
@@ -93,39 +87,34 @@ class UGraph(UBase):
                 neum_mask.append(False)
 
         self.neumann_mode = len(deriv_val) > 0
-
         if self.neumann_mode:
             self.deriv_val = torch.tensor(deriv_val)
             self.deriv_orders_bc = deriv_orders
             self.neumann_mask = torch.tensor(neum_mask)
 
-        if device == "cuda":
-            self._cuda()
-
-        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_us_tot, device=self.device)
-        if self.neumann_mode:
+            self._cuda_bc()
             self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask, self.grad_mask, self.deriv_orders_bc, self.N_us_tot, device=self.device)
 
 
-    def _adj_mat(self):
-        adj_mat = []
-        for point in range(self.N_us_tot):
-            neigh_all = []
-            for graph in self.graphs.values():
-                neighs = graph.neighbors
-                neigh_all.append(neighs.get(point, torch.tensor([])))
-
-            neigh_all.append(torch.tensor([point]))  # Add self to the list of neighbors.
-            neigh_all = torch.cat(neigh_all)
-            neigh_unique = torch.unique(neigh_all).to(torch.int64)
-            adj_mat.append(neigh_unique)
-
-        row_idxs = torch.cat([torch.full_like(col_idx, i) for i, col_idx in enumerate(adj_mat)])
-        col_idxs = torch.cat(adj_mat)
-        edge_idxs = torch.stack([row_idxs, col_idxs], dim=0)
-        dummy_val = torch.ones(edge_idxs.shape[1])
-        adj_mat_sp = torch.sparse_coo_tensor(edge_idxs, dummy_val, (self.N_us_tot, self.N_us_tot))
-        return adj_mat_sp
+    # def _adj_mat(self):
+    #     adj_mat = []
+    #     for point in range(self.N_us_tot):
+    #         neigh_all = []
+    #         for graph in self.graphs.values():
+    #             neighs = graph.neighbors
+    #             neigh_all.append(neighs.get(point, torch.tensor([])))
+    #
+    #         neigh_all.append(torch.tensor([point]))  # Add self to the list of neighbors.
+    #         neigh_all = torch.cat(neigh_all)
+    #         neigh_unique = torch.unique(neigh_all).to(torch.int64)
+    #         adj_mat.append(neigh_unique)
+    #
+    #     row_idxs = torch.cat([torch.full_like(col_idx, i) for i, col_idx in enumerate(adj_mat)])
+    #     col_idxs = torch.cat(adj_mat)
+    #     edge_idxs = torch.stack([row_idxs, col_idxs], dim=0)
+    #     dummy_val = torch.ones(edge_idxs.shape[1])
+    #     adj_mat_sp = torch.sparse_coo_tensor(edge_idxs, dummy_val, (self.N_us_tot, self.N_us_tot))
+    #     return adj_mat_sp
 
     def _cuda(self):
         """ Move graph data to CUDA. """
@@ -136,9 +125,10 @@ class UGraph(UBase):
         self.grad_mask = self.grad_mask.cuda(non_blocking=True)
         [graph.cuda() for graph in self.graphs.values()]
 
-        if self.neumann_mode:
-            self.deriv_val = self.deriv_val.cuda(non_blocking=True)
-            self.neumann_mask = self.neumann_mask.cuda(non_blocking=True)
+    def _cuda_bc(self):
+        self.deriv_val = self.deriv_val.cuda(non_blocking=True)
+        self.neumann_mask = self.neumann_mask.cuda(non_blocking=True)
+
 
 def test_fn(Xs):
     x, y = Xs[0], Xs[1]

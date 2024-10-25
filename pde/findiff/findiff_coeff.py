@@ -160,9 +160,7 @@ def fin_diff_weights(center, points, derivative_order, m, method: diff_options, 
     # Step 5: Solve the linear system A_T w = D.
     # Step 5.1: Weight magnitude of w, for underdetermined system / extra points. (Error formula)
     weights = torch.norm(deltas, p=2, dim=1) ** (m + 1)
-    # print(f'{weights.mean().tolist() = }')
     weights = weights + eps
-    #weights = torch.ones_like(weights)
     if method=="pinv":
         A_T_pinv = torch.linalg.pinv(A_T)  # Compute the pseudoinverse of A_T
         w = A_T_pinv @ D  # Compute the weights w (Shape: (N,))
@@ -202,13 +200,13 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
 
     pde_dict = {idx: point for idx, point in point_dict.items() if P_Types.GRAD in point.point_type}
 
+    min_points = min(75, N_nodes)
+    max_points = min(201, N_nodes + 1)
     edge_idxs, weights, neighbors = [], [], {}
     for j, point in pde_dict.items():
         X = point.X
         # Find the nearest neighbors and calculate coefficients.
         # If the calculation fails (not enough points for given accuracy), increase the number of neighbors until it succeeds.
-        min_points = min(75, N_nodes)
-        max_points = min(201, N_nodes + 1)
         for i in range(min_points, max_points, 25):
             err = None
             try:
@@ -219,7 +217,6 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
                 print(f"{j} Adding more points")
                 err = e
             else:
-
                 break
         else:
             # print("Error reached")
@@ -250,13 +247,13 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
         edge_idx = torch.stack([neigh_idx_want, source_nodes], dim=0)
         w_want = w[mask]
         edge_idxs.append(edge_idx)
-        neighbors[j] = neigh_idx_want
+        #neighbors[j] = neigh_idx_want
         weights.append(w_want)
 
 
     edge_idxs = torch.cat(edge_idxs, dim=1)
     weights = torch.cat(weights)
-    return edge_idxs, weights, neighbors
+    return edge_idxs, weights, None #neighbors
 
 
 def main():

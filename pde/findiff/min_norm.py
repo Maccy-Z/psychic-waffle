@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-
+from functools import lru_cache
 
 def print_tensor(tensor, threshold=1e-6):
     x = torch.where(torch.abs(tensor) < threshold, 0, tensor)
@@ -55,6 +55,21 @@ def min_sq_norm(A, c, b):
 
     return x.squeeze(), "min_sq_norm is Normal"
 
+@lru_cache(maxsize=1)
+def np_cache(n, A_shape_0):
+    #print(n, A_shape_0)
+
+    zero_n = np.zeros(n)
+    zeros_A_n = np.zeros((A_shape_0, n))
+    A_ub = np.vstack((
+        np.hstack((-np.eye(n), -np.eye(n))),
+        np.hstack((np.eye(n), -np.eye(n)))
+    ))
+    b_ub = np.zeros(2 * n)
+    bounds = [(-np.inf, np.inf)] * n + [(0, np.inf)] * n
+
+    return zero_n, zeros_A_n, A_ub, b_ub, bounds
+
 def min_abs_norm(A, b ,c):
     """ Solve min c^T |x| s.t. Ax = b.
         Equivalent to linear programming in 2N variables.
@@ -63,30 +78,30 @@ def min_abs_norm(A, b ,c):
     from scipy.optimize import linprog
 
     # If A_pinv A is identity, return min norm solution
-    A_pinv_A = torch.linalg.lstsq(A, A).solution
-    if torch.allclose(A_pinv_A, torch.eye(A.shape[1]), atol=1e-5):
-        A_pinv = torch.linalg.pinv(A, atol=1e-5)
-        return A_pinv @ b, "A_pinv A is identity"
+    # A_pinv_A = torch.linalg.lstsq(A, A).solution
+    # if torch.allclose(A_pinv_A, torch.eye(A.shape[1]), atol=1e-5):
+    #     A_pinv = torch.linalg.pinv(A, atol=1e-5)
+    #     return A_pinv @ b, "A_pinv A is identity"
 
     b_torch = b
     A, b, c = A.numpy(), b.numpy(), c.numpy()
     n = len(c)  # Number of variables
 
+    zero_n, zeros_A_n, A_ub, b_ub, bounds = np_cache(n, A.shape[0])
+
     # Objective function coefficients
-    obj = np.concatenate((np.zeros(n), c))
+    obj = np.concatenate((zero_n, c))
+
 
     # Equality constraints
-    A_eq = np.hstack((A, np.zeros((A.shape[0], n))))
+    A_eq = np.hstack((A, zeros_A_n))
     b_eq = b
 
     # Inequality constraints
-    A_ub = np.vstack((
-        np.hstack((-np.eye(n), -np.eye(n))),
-        np.hstack((np.eye(n), -np.eye(n)))
-    ))
-    b_ub = np.zeros(2 * n)
+    A_ub = A_ub
+    b_ub = b_ub
     # Variable bounds
-    bounds = [(-np.inf, np.inf)] * n + [(0, np.inf)] * n
+    bounds = bounds
 
     # Solve LP
     result = linprog(c=obj, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds)
