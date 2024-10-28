@@ -124,8 +124,7 @@ class NeumanBCCalc(FinDerivCalcSPMV):
             deriv_mat.append(deriv_row_sum)
 
         deriv_mat = torch.stack(deriv_mat, dim=0).coalesce()
-        deriv_mat = deriv_mat.to_sparse_csr()          # shape = [N_eqs, N_us_tot]
-        self.deriv_mat = CSRToInt32(deriv_mat)
+        self.deriv_mat = CSRToInt32(deriv_mat.to_sparse_csr())
 
         self.jac_mat = coo_col_select(deriv_mat, self.grad_mask).to_sparse_csr()   # shape = [N_eqs, N_grad]
         self.jac_mat = CSRToInt32(self.jac_mat)

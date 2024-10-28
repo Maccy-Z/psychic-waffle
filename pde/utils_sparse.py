@@ -311,7 +311,7 @@ class CSRSummer:
         return J
 
     def blank_csr(self):
-        J = torch.sparse_csr_tensor(self.output_crow_indices, self.output_col_indices, torch.empty_like(self.output_col_indices), size=self.size)
+        J = torch.sparse_csr_tensor(self.output_crow_indices, self.output_col_indices, torch.ones_like(self.output_col_indices), size=self.size)
         return J
 
 

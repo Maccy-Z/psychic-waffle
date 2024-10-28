@@ -69,7 +69,10 @@ class GraphJacobCalc(JacobCalc):
         self.csr_summer = CSRSummer(deriv_jac_list)
 
         dummy_jac = self.csr_summer.blank_csr()
-        # plot_sparsity(dummy_jac)
+        #plot_sparsity(dummy_jac)
+        # dummy_jac = dummy_jac.to_dense().float()
+        # print(torch.linalg.matrix_rank(dummy_jac))
+        # print(dummy_jac.shape)
         # exit(())
         self.transposer = CSRTransposer(dummy_jac, check_sparsity=True)
 

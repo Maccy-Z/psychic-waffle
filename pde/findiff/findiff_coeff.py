@@ -1,9 +1,11 @@
 import torch
-import math
 from typing import Literal
 from functools import lru_cache, wraps
+
 from scipy.spatial import KDTree
 from cprint import c_print
+from torch.multiprocessing import Pool
+import numpy as np
 
 from pde.findiff.min_norm import min_sq_norm, min_abs_norm
 from pde.graph_grid.graph_store import Point, P_Types
@@ -12,7 +14,6 @@ diff_options = Literal["pinv", "sq_weight_norm", "abs_weight_norm"]
 
 class ConvergenceError(Exception):
     pass
-
 
 def lru_cache_tensor(maxsize=128):
     """
@@ -49,6 +50,7 @@ def lru_cache_tensor(maxsize=128):
 
     return decorator
 
+
 def gen_multi_idx_tuple(m):
     """
     Indicies in tuple form for dict indexing
@@ -61,6 +63,7 @@ def gen_multi_idx_tuple(m):
 
     indices = sorted(indices, key=lambda x: (x[0] + x[1], -x[0]))
     return indices
+
 
 @lru_cache(maxsize=5)
 def generate_multi_indices(m):
@@ -77,6 +80,7 @@ def generate_multi_indices(m):
             alpha_y = total_degree - alpha_x
             indices.append([alpha_x, alpha_y])
     return indices
+
 
 @lru_cache_tensor(maxsize=5)
 def compute_D_vector(alpha, k):
@@ -103,6 +107,7 @@ def compute_D_vector(alpha, k):
 
     return D
 
+
 def construct_A_matrix(delta_x, delta_y, multi_indices):
     """
     Construct the transpose of matrix A by evaluating the monomials at the coordinate differences.
@@ -128,6 +133,7 @@ def construct_A_matrix(delta_x, delta_y, multi_indices):
     A_T = (delta_x ** alpha_x) * (delta_y ** alpha_y)  # Shape (M, N)
 
     return A_T
+
 
 def fin_diff_weights(center, points, derivative_order, m, method: diff_options, atol=1e-4, eps=6e-8):
     """
@@ -161,18 +167,19 @@ def fin_diff_weights(center, points, derivative_order, m, method: diff_options, 
     # Step 5.1: Weight magnitude of w, for underdetermined system / extra points. (Error formula)
     weights = torch.norm(deltas, p=2, dim=1) ** (m + 1)
     weights = weights + eps
-    if method=="pinv":
-        A_T_pinv = torch.linalg.pinv(A_T)  # Compute the pseudoinverse of A_T
-        w = A_T_pinv @ D  # Compute the weights w (Shape: (N,))
-        status = None
-    elif method=="sq_weight_norm":
-        w, status = min_sq_norm(A_T, weights, D)
-    elif method == "abs_weight_norm":
+
+    if method == "abs_weight_norm":
         try:
             w, status = min_abs_norm(A_T, D, weights)
         except ValueError as e:
             status = e.args[0]
             raise ConvergenceError(status, f'') from None
+    elif method=="pinv":
+        A_T_pinv = torch.linalg.pinv(A_T)  # Compute the pseudoinverse of A_T
+        w = A_T_pinv @ D  # Compute the weights w (Shape: (N,))
+        status = None
+    elif method=="sq_weight_norm":
+        w, status = min_sq_norm(A_T, weights, D)
     else:
         exit("Method not implemented")
 
@@ -182,12 +189,70 @@ def fin_diff_weights(center, points, derivative_order, m, method: diff_options, 
         raise ConvergenceError(status, f'Error too large: {max_err.item() = :.3g}')
 
     #sq_res = w.unsqueeze(0) @ torch.diag(weights) @ w
-    abs_res = w.abs() @ weights
+    #abs_res = w.abs() @ weights
 
-    return w, {'mean_err': err.abs().mean(), 'status': status, 'max_err': max_err, 'abs_res': abs_res}
+    return w, {'status': status, 'max_err': max_err,}
+               #'mean_err': err.abs().mean(), 'abs_res': lambda: w.abs() @ weights, 'sq_res': lambda: w.unsqueeze(0) @ torch.diag(weights) @ w}
+
+
+def _calc_coeff_single(j, X, diff_order, diff_acc, N_us_tot, min_points, max_points):
+    """ Inner loop for multiprocessing"""
+    global global_kdtree, global_Xs_all
+    kdtree, Xs_all = global_kdtree, global_Xs_all
+
+    # Find the nearest neighbors and calculate coefficients.
+    # If the calculation fails (not enough points for given accuracy), increase the number of neighbors until it succeeds.
+    for i in range(min_points, max_points, 25):
+        try:
+            _, neigh_idx = kdtree.query(X, k=i)
+            neigh_Xs = Xs_all[neigh_idx]
+            w, _ = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, "abs_weight_norm", atol=6e-4, eps=6e-8)
+        except ConvergenceError:
+            print(f"{j} Adding more points")
+        else:
+            break
+    else:
+        # print("Error reached")
+        # save_dict = {"X": X, "neigh_Xs": neigh_Xs, "err": err}
+        # import pickle
+        # pickle.dump(save_dict, open(f"save.pkl", "wb"))
+        # exit("Error")
+        # continue
+
+        c_print(f"Using looser tolerance for point {j}, {X=}", color="bright_magenta")
+        # Using Try again with looser tolerance, probably from fp64 -> fp32 rounding.
+        try:
+            _, neigh_idx = kdtree.query(X, k=min(max_points, N_us_tot))
+            neigh_Xs = Xs_all[neigh_idx]
+            w, _ = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, "abs_weight_norm", atol=2e-3, eps=18e-8)
+        except ConvergenceError as e:
+            # Unable to find suitable weights.
+            status, err_msg = e.args
+            c_print(f'{i = }, {err_msg = }, {status = }', color='bright_magenta')
+
+            # print(neigh_Xs)
+            raise ConvergenceError(f'Could not find weights for {X.tolist()}') from None
+
+    # # Only create edge if weight is not 0
+    mask = torch.abs(w) > 1e-5
+    w_want = w[mask]
+
+    neigh_idx_want = torch.tensor(neigh_idx[mask])
+    source_nodes = torch.full((len(neigh_idx_want),), j, dtype=torch.long)
+    edge_idx = torch.stack([neigh_idx_want, source_nodes], dim=0)
+
+    # Pytorch multiprocessing bug
+    edge_idx, w_want = edge_idx.numpy(), w_want.numpy()
+    return edge_idx, w_want
+
+
+global_kdtree, global_Xs_all = None, None
+def _init_pool(kdtree, Xs_all):
+    global global_kdtree, global_Xs_all
+    global_kdtree, global_Xs_all = kdtree, Xs_all
 
 def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[int, int]):
-    """ Calculate neighbours and finite difference coefficients
+    """ Calculate finite difference coefficients.
     Xs_all: torch.Tensor [N_nodes, 2]. All nodes in the graph.
     point_dict: dict[int, Point]. Dictionary of points where gradients are calculated
     N_nodes: int
@@ -195,65 +260,27 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
     diff_order: Tuple[int, int]
     """
     Xs_all = torch.stack([point.X for point in point_dict.values()])
-    N_nodes = len(point_dict)
     kdtree = KDTree(Xs_all)
+    N_us_tot = len(point_dict)
+    min_points = min(75, N_us_tot)
+    max_points = min(251, N_us_tot + 1)
 
     pde_dict = {idx: point for idx, point in point_dict.items() if P_Types.GRAD in point.point_type}
+    mp_args = [(j, point.X, diff_order, diff_acc, N_us_tot, min_points, max_points) for j, point in pde_dict.items()]
 
-    min_points = min(75, N_nodes)
-    max_points = min(201, N_nodes + 1)
-    edge_idxs, weights, neighbors = [], [], {}
-    for j, point in pde_dict.items():
-        X = point.X
-        # Find the nearest neighbors and calculate coefficients.
-        # If the calculation fails (not enough points for given accuracy), increase the number of neighbors until it succeeds.
-        for i in range(min_points, max_points, 25):
-            err = None
-            try:
-                _, neigh_idx = kdtree.query(X, k=i)
-                neigh_Xs = Xs_all[neigh_idx]
-                w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=6e-4, eps=6e-8)
-            except ConvergenceError as e:
-                print(f"{j} Adding more points")
-                err = e
-            else:
-                break
-        else:
-            # print("Error reached")
-            # save_dict = {"X": X, "neigh_Xs": neigh_Xs, "err": err}
-            # import pickle
-            # pickle.dump(save_dict, open(f"save.pkl", "wb"))
-            # exit("Error")
-            # continue
-
-            c_print(f"Using looser tolerance for point {j}, {X=}", color="bright_magenta")
-            # Using Try again with looser tolerance, probably from fp64 -> fp32 rounding.
-            try:
-                _, neigh_idx = kdtree.query(X, k=min(150, N_nodes))
-                neigh_Xs = Xs_all[neigh_idx]
-                w, status = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, method="abs_weight_norm", atol=1e-3, eps=12e-8)
-            except ConvergenceError as e:
-                # Unable to find suitable weights.
-                status, err_msg = e.args
-                c_print(f'{i = }, {err_msg = }, {status = }', color='bright_magenta')
-
-                # print(neigh_Xs)
-                raise ConvergenceError(f'Could not find weights for {X.tolist()}') from None
-
-        # Only create edge if weight is not 0
-        mask = torch.abs(w) > 1e-5
-        neigh_idx_want = torch.tensor(neigh_idx[mask])
-        source_nodes = torch.full((len(neigh_idx_want),), j, dtype=torch.long)
-        edge_idx = torch.stack([neigh_idx_want, source_nodes], dim=0)
-        w_want = w[mask]
-        edge_idxs.append(edge_idx)
-        #neighbors[j] = neigh_idx_want
-        weights.append(w_want)
+    with Pool(processes=16, initializer=_init_pool, initargs=(kdtree, Xs_all)) as pool:
+        results = pool.starmap(_calc_coeff_single, mp_args)
 
 
-    edge_idxs = torch.cat(edge_idxs, dim=1)
-    weights = torch.cat(weights)
-    return edge_idxs, weights, None #neighbors
+    edge_idxs, weights = zip(*results)
+    # edge_idxs = torch.cat(edge_idxs, dim=1)
+    # weights = torch.cat(weights)
+    # Pytorch multiprocessing bug
+    edge_idxs = np.concatenate(edge_idxs, axis=1)
+    weights = np.concatenate(weights)
+    edge_idxs, weights = torch.from_numpy(edge_idxs), torch.from_numpy(weights)
+
+    return edge_idxs, weights, None
 
 
 def main():

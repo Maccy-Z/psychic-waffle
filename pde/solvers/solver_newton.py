@@ -34,6 +34,15 @@ class SolverNewton:
             with Timer(text="Time to calculate jacobian: : {:.4f}", logger=logging.debug):
                 jacobian, residuals = self.jac_calc.jacobian()
 
+            # from pde.utils_sparse import plot_sparsity
+            # print(f'{jacobian.shape = }')
+            # plot_sparsity(jacobian)
+            # jacobian = jacobian.to_dense()
+            # print(f'rank = {torch.linalg.matrix_rank(jacobian)}')
+            #
+            # print(torch.min(torch.inverse(jacobian)))
+            # exit(4)
+
             with Timer(text="Time to solve: : {:.4f}", logger=logging.debug):
                 # Convert jacobian to sparse here instead of in lin_solver, so we can delete the dense Jacobian asap.
                 jac_preproc = self.lin_solver.preproc_tensor(jacobian)

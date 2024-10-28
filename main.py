@@ -1,48 +1,20 @@
+import time
+from multiprocessing import Pool, cpu_count
 import torch
-import matplotlib.pyplot as plt
-import numpy as np
-from pde.utils_sparse import gen_rand_sp_matrix
 
-# Example CSR data (small matrix for demonstration)
-num_rows = 5
-num_cols = 6
-sparse_csr = gen_rand_sp_matrix(num_rows, num_cols, density=0.4, device='cpu')
+def test_fn(a):
+    a = torch.tensor([1, 2, 3])#.numpy()
+    return a#, a
 
 
-def CSRToInt32(sparse_csr: torch.Tensor) -> torch.Tensor:
-    """
-    Converts the crow_indices and col_indices of a sparse CSR tensor from int64 to int32.
+def main():
+    args = [i for i in range(5000)]
+    st = time.time()
+    with Pool(processes=16) as p:
+        out = p.starmap(test_fn, args)
 
-    Args:
-        sparse_csr (torch.Tensor): A PyTorch sparse CSR tensor.
+    x = zip(*out)
+    print(f"Time: {time.time() - st:.3f}")
 
-    Returns:
-        torch.Tensor: A new sparse CSR tensor with int32 indices and the same values.
-    """
-    # Extract CSR components
-    crow_indices = sparse_csr.crow_indices()
-    col_indices = sparse_csr.col_indices()
-    values = sparse_csr.values()
-    size = sparse_csr.size()
-    dtype = values.dtype
-    device = sparse_csr.device
-
-    # Convert indices to int32
-    crow_indices_int32 = crow_indices.to(torch.int32)
-    col_indices_int32 = col_indices.to(torch.int32)
-
-    # Reconstruct the sparse CSR tensor with int32 indices
-    sparse_csr_int32 = torch.sparse_csr_tensor(
-        crow_indices_int32,
-        col_indices_int32,
-        values,
-        size=size,
-        dtype=dtype,
-        device=device
-    )
-
-    return sparse_csr_int32
-
-sparse_csr_32 = convert_csr_indices_to_int32(sparse_csr)
-
-print(sparse_csr_32.crow_indices())
+if __name__ == "__main__":
+    main()

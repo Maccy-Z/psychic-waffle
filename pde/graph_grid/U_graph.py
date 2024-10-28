@@ -1,10 +1,11 @@
 import torch
+from fontTools.ttx import process
 from torch import Tensor
 from cprint import c_print
 from codetiming import Timer
+from torch.multiprocessing import Pool
 
 from pde.BaseU import UBase
-from pde.graph_grid.graph_utils import diag_permute
 from pde.graph_grid.graph_store import DerivGraph, Point
 from pde.graph_grid.graph_store import P_Types as T
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
@@ -58,6 +59,7 @@ class UGraph(UBase):
             with Timer(text="Time to solve: : {:.4f}"):
                 edge_idx, fd_weights, neighbors = calc_coeff(setup_dict, grad_acc, degree)
                 self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
+
 
         # # 2.1) Delete unneeded data.
         # for degree, graph in self.graphs.items():

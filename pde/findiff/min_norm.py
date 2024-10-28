@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 from functools import lru_cache
+from scipy.optimize import linprog
+from codetiming import Timer
 
 def print_tensor(tensor, threshold=1e-6):
     x = torch.where(torch.abs(tensor) < threshold, 0, tensor)
@@ -75,7 +77,6 @@ def min_abs_norm(A, b ,c):
         Equivalent to linear programming in 2N variables.
         Return: x: Vector (N), status: str
      """
-    from scipy.optimize import linprog
 
     # If A_pinv A is identity, return min norm solution
     # A_pinv_A = torch.linalg.lstsq(A, A).solution
@@ -92,7 +93,6 @@ def min_abs_norm(A, b ,c):
     # Objective function coefficients
     obj = np.concatenate((zero_n, c))
 
-
     # Equality constraints
     A_eq = np.hstack((A, zeros_A_n))
     b_eq = b
@@ -104,7 +104,7 @@ def min_abs_norm(A, b ,c):
     bounds = bounds
 
     # Solve LP
-    result = linprog(c=obj, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds)
+    result = linprog(c=obj, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method="highs-ds", options={"presolve": False})
 
     # Extract solution
     if result.success:

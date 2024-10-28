@@ -165,7 +165,6 @@ cdef class Matrix:
         pass
 
 
-
     def get_size(self):
         """
         M.get_size()
