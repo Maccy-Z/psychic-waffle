@@ -40,10 +40,7 @@ class NeuralPDEGraph:
 
     def forward_solve(self):
         """ Solve PDE forward problem. """
-
         self.newton_solver.find_pde_root()
-        # us, _ = self.us_graph.get_real_us_Xs()
-        # show_grid(us, "Fitted values")
 
     def adjoint_solve(self):
         """ Solve for adjoint """

@@ -28,7 +28,7 @@ def plot_sparsity(A):
     plt.imshow(dense_binary, cmap='Greys', interpolation='none', aspect='auto')
     plt.xlabel('Columns')
     plt.ylabel('Rows')
-    plt.title('Sparsity Pattern')
+    plt.title(f'Sparsity Pattern, nnz={sparse_coo._nnz()}')
     plt.gca().invert_yaxis()
     plt.show()
 
@@ -500,6 +500,7 @@ def coo_col_select(sparse_coo: torch.sparse_coo_tensor, col_mask) -> torch.spars
 
     return new_sparse_coo
 
+
 def CSRToInt32(sparse_csr: torch.Tensor) -> torch.Tensor:
     """
     Converts the crow_indices and col_indices of a sparse CSR tensor from int64 to int32.
@@ -533,6 +534,12 @@ def CSRToInt32(sparse_csr: torch.Tensor) -> torch.Tensor:
     )
 
     return sparse_csr_int32
+
+def CSRTorchToCP(csr_tensor: torch.Tensor) -> cp.sparse.csr_matrix:
+    pass
+
+
+
 
 # Example Usage
 if __name__ == "__main__":

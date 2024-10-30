@@ -5,8 +5,7 @@ from codetiming import Timer
 import cupy as cp
 import cupyx.scipy.sparse as sp
 import cupyx.scipy.sparse.linalg as sp_linalg
-from cprint import c_print
-from typing import Literal, Callable
+from typing import Callable
 
 from pde.solvers.gmres import gmres
 from pde.solvers.pyamgx_holder import PyAMGXManager
@@ -43,7 +42,7 @@ class LinearSolver:
             elif mode == LinMode.SPARSE:
                 self.solver = self.cpu_sparse
 
-    def solve(self, A: torch.Tensor, b: torch.Tensor):
+    def solve(self, A, b):
         return self.solver(A, b)
 
     def cuda_amgx(self, A_cp: cp.array, b: torch.Tensor):

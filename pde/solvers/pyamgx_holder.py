@@ -29,10 +29,18 @@ class PyAMGXSolver:
 
         self.A, self.b, self.x = A, b, x
 
+        self.setup = False
+
     def init_solver_cp(self, cp_matrix):
         """ Initialise problem matrix A from cupy sparse csr"""
-        self.A.upload_CSR(cp_matrix)
-        self.solver.setup(self.A)
+
+        if self.setup:
+            self.A.replace_coefficients(cp_matrix.data)
+        else:
+            # print(f'{cp_matrix.nnz = }')
+            self.A.upload_CSR(cp_matrix)
+            self.solver.setup(self.A)
+            # self.setup = True
 
     def init_solver(self, tensor):
         """ Initialise problem matrix A from sparse csr cuda tensor """

@@ -46,8 +46,20 @@ class UGraph(UBase):
 
         # 1) Reorder points by order: P_Normal -> P_Derivative -> P_Boundary. Redefines node values.
         sort_order = {T.Normal: 0, T.DirichBC: 1, T.NeumOffsetBC: 2, T.NeumCentralBC: 3}
-        sorted_points = sorted(setup_dict.values(), key=lambda x: sort_order[x.point_type])
+        # sorted_points = sorted(setup_dict.values(), key=lambda x: sort_order[x.point_type])
+        sorted_points = sorted(setup_dict.values(), key=lambda x: x.X[1])
+
         setup_dict = {i: point for i, point in enumerate(sorted_points)}
+
+        # 1.1) Compute jacobian permutation
+        jacob_dict = {i:point for i, point in enumerate(v for v in setup_dict.values() if T.GRAD in v.point_type)}
+
+        jacob_main_pos = {i:point for i, point in jacob_dict.items() if (T.NeumOffsetBC not in point.point_type and T.GRAD in point.point_type)}
+        jacob_neum_pos = {i:point for i, point in jacob_dict.items() if T.NeumOffsetBC in point.point_type}
+
+        torch.save({"neum": list(jacob_neum_pos.keys()), "main": list(jacob_main_pos.keys())}, "jacob_pos.pth")
+        exit(4)
+
 
         # 2) Compute finite difference stencils / graphs.
         # Each gradient type has its own stencil and graph.
@@ -59,11 +71,6 @@ class UGraph(UBase):
             with Timer(text="Time to solve: : {:.4f}"):
                 edge_idx, fd_weights, neighbors = calc_coeff(setup_dict, grad_acc, degree)
                 self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
-
-
-        # # 2.1) Delete unneeded data.
-        # for degree, graph in self.graphs.items():
-        #     graph.neighbors = None      # Dont need anymore.
 
         self.Xs = torch.stack([point.X for point in setup_dict.values()])
         self.us = torch.tensor([point.value for point in setup_dict.values()])

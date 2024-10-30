@@ -153,7 +153,8 @@ def test_grid(xmin: float, xmax: float, N: Tensor, device='cpu'):
 
     # Combine the grids to form the final N x M grid of points
     Xs = torch.stack([m_grid, n_grid], dim=-1).view(-1, 2)  # shape = [N, 2]
-    Xs = Xs + torch.rand_like(Xs) * dx / 2.1
+    Xs = Xs + (torch.rand_like(Xs)-0.5) * dx / 1.1
+
     c_print(f'Grid Range: {Xmin.tolist()} to {Xmax.tolist()}.', 'green')
     c_print(f'Grid Spacing: {dx:.5g}, grid Shape: {N.tolist()}.', 'green')
 
