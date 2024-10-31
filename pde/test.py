@@ -1,9 +1,7 @@
-from idlelib.debugger_r import restart_subprocess_debugger
-
 from pde.config import LinMode
 import torch
 from pde.solvers.linear_solvers import LinearSolver
-from pde.utils_sparse import plot_sparsity
+from pde.utils_sparse import plot_sparsity, CSRPermuter
 from cprint import c_print
 
 def condition_num(A):
@@ -20,8 +18,8 @@ def reverse_permutation(indices):
     # Populate the reversed indices
     for i, target_position in enumerate(indices):
         reversed_indices[target_position] = i
-
     return reversed_indices
+
 def random_permutation_matrix(n, dtype=torch.float32, device=None):
     """
     Generates a random permutation matrix of size n x n.
@@ -60,16 +58,16 @@ lin_solve_cfg = {
                 "tolerance": 1e-4,
                 "max_iters": 1001,
                 # "gmres_n_restart": 75,
-                "preconditioner": "NOSOLVER",
-                # "preconditioner": {
-                #     "solver": "AMG",
-                #     "algorithm": "AGGREGATION",
-                #     "selector": "SIZE_4",
-                #     "max_iters": 1,
-                #     "cycle": "V",
-                #     "max_levels": 5,
-                #     "max_matching_iterations": 1,
-                # }
+                # "preconditioner": "NOSOLVER",
+                "preconditioner": {
+                    "solver": "AMG",
+                    "algorithm": "CLASSICAL",
+                    #"selector": "SIZE_4",
+                    "max_iters": 2,
+                    "cycle": "V",
+                    #"max_levels": 5,
+                    #"max_matching_iterations": 1,
+                }
             }
             # "solver": "BLOCK_JACOBI",
         }
@@ -82,39 +80,51 @@ def main():
     with open("jacob_pos.pth", "rb") as f:
         perm_dict = torch.load(f)
 
-    jacobian = jacobian.to_dense().to_sparse_csr()
+    j = jacobian
+    r = residuals
+    print(sorted(torch.abs(jacobian.to_dense().diag()).tolist())[:100])
+    # jacobian = jacobian.to_dense().to_sparse_csr()
 
-    #jacobian = jacobian + torch.eye(jacobian.shape[0], device=jacobian.device)* 0.1
+    # jacobian = jacobian + torch.eye(jacobian.shape[0], device=jacobian.device)* 0.1
 
-    #perm_mat, row_perm = random_permutation_matrix(jacobian.shape[0], dtype=jacobian.dtype, device=jacobian.device)
-    row_perm = torch.tensor(perm_dict["main"] + perm_dict["neum"])
-    row_perm = reverse_permutation(row_perm)
+    # perm_mat, row_perm = random_permutation_matrix(jacobian.shape[0], dtype=jacobian.dtype, device=jacobian.device)
+    # row_perm = torch.tensor(perm_dict["main"] + perm_dict["neum"])
+    # c_print(f'{row_perm = }', color="bright_cyan")
 
-    c_print(f'{row_perm = }', color="bright_cyan")
+    # row_perm = reverse_permutation(row_perm)
+    # jacobian = j.to_dense()[row_perm]
+    # residuals = r[row_perm]
 
-    jacobian = jacobian.to_dense()[row_perm]
-    residuals = residuals[row_perm]
-    #0jacobian = perm_mat@jacobian
-    #residuals = perm_mat@residuals
+    # permuter = CSRPermuter(row_perm, j)
+    # jacobian = permuter.matrix_permute(j)
+    # residuals = permuter.vector_permute(r)
 
+    # print(torch.allclose(jac2.to_dense(), jacobian.to_dense()))
     plot_sparsity(jacobian)
+    # plot_sparsity(jac2)
 
-    jac_dense = jacobian.to_dense()
-    print(f'{jac_dense.shape = }')
-    print(f'rank = {torch.linalg.matrix_rank(jac_dense)}')
-    condition_num(jac_dense)
-    print()
+    # exit(9)
+    # # jacobian = perm_mat@jacobian
+    # # residuals = perm_mat@residuals
 
+
+    # jac_dense = jacobian.to_dense()
+    # print(f'{jac_dense.shape = }')
+    # c_print(f'rank = {torch.linalg.matrix_rank(jac_dense)}', color='bright_cyan')
+    # condition_num(jac_dense)
+    # print()
+
+    # AMGX solver
     solver = LinearSolver(LinMode.AMGX, "cuda", cfg=lin_solve_cfg)
-    jacobian = solver.preproc_sparse(jacobian)
+    jacobian_amgx = solver.preproc_sparse(jacobian)
+    result = solver.solve(jacobian_amgx, residuals)
+    print(result[:25])
 
-
-    result = solver.solve(jacobian, residuals)
-
-    print(result)
-
-    true_result = torch.linalg.solve(jac_dense, residuals)
-    print(f'{true_result = }')
+    # Exact solver
+    solver_exact = LinearSolver(LinMode.SPARSE, "cuda")
+    jacobian_cp = solver_exact.preproc(jacobian)
+    true_result = solver_exact.solve(jacobian_cp, residuals)
+    print(f'{true_result[:25]}')
 
 if __name__ == "__main__":
     torch.manual_seed(0)

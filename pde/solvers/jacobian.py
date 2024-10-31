@@ -9,7 +9,7 @@ from pde.cartesian_grid.PDE_Grad import PDEForward
 from pde.utils import get_split_indices, clamp
 from pde.BasePDEGrad import PDEFwdBase
 from pde.graph_grid.PDE_Grad import PDEForward as PDEForwardGraph
-from pde.utils_sparse import CSRSummer, CSRRowMultiplier, CSRTransposer, CsrBuilder, CSRConcatenator, plot_sparsity
+from pde.utils_sparse import CSRSummer, CSRRowMultiplier, CSRTransposer, CsrBuilder, CSRConcatenator, plot_sparsity, CSRPermuter
 from pde.graph_grid.U_graph import UGraph
 
 def get_jac_calc(us_grid: UBase, pde_forward: PDEFwdBase, cfg):
@@ -79,6 +79,11 @@ class GraphJacobCalc(JacobCalc):
         if u_graph.neumann_mode:
             self.deriv_calc_bc = u_graph.deriv_calc_bc
             self.concatenator = CSRConcatenator(dummy_jac, self.deriv_calc_bc.jac_mat)
+            dummy_jac_full = self.concatenator.blank_csr()
+
+            self.permuter = CSRPermuter(u_graph.row_perm, dummy_jac_full)
+            # print(dummy_jac_full)
+            # exit(9)
 
     @torch.no_grad()
     def jacobian(self):
@@ -126,6 +131,16 @@ class GraphJacobCalc(JacobCalc):
             # 5.2_ Neumann jacobian: dR/dD = 1, so select corresponding rows of jacobian.
             bc_deriv_jac = self.deriv_calc_bc.jac_mat
             jacobian = self.concatenator.cat(jacobian, bc_deriv_jac)  # shape = [N_pde+N_bc, N_total]
+
+            # 6)  Neuman Jacobian is concatenated onto the end of the main Jacobian. Permute it back to correct order
+            jacobian = self.permuter.matrix_permute(jacobian)
+            residuals = self.permuter.vector_permute(residuals)
+
+        # torch.save(jacobian, "jacobian.pth")
+        # torch.save(residuals, "residuals.pth")
+        # from pde.utils_sparse import plot_sparsity
+        # plot_sparsity(jacobian)
+        # exit(4)
 
         return jacobian, residuals
 

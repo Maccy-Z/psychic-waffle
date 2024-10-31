@@ -32,6 +32,44 @@ def plot_sparsity(A):
     plt.gca().invert_yaxis()
     plt.show()
 
+def permutation_to_csr(perm, dtype=torch.float32, device="cpu"):
+    """
+    Convert a permutation tensor to a sparse permutation matrix in CSR format.
+
+    Args:
+        perm (torch.Tensor): 1D integer tensor representing the permutation.
+                             It should contain each integer from 0 to n-1 exactly once.
+        dtype (torch.dtype, optional): Data type of the sparse matrix values. Defaults to torch.float32.
+
+    Returns:
+        torch.Tensor: A sparse CSR tensor representing the permutation matrix.
+    """
+    n = perm.size(0)
+
+    # Validate that perm is a valid permutation
+    if not torch.all((perm >= 0) & (perm < n)):
+        raise ValueError("Permutation tensor contains invalid indices.")
+    if torch.unique(perm).numel() != n:
+        raise ValueError("Permutation tensor must contain each index exactly once.")
+
+    # Data is all ones
+    data = torch.ones(n, dtype=dtype, device=device)
+
+    # Indices are the permutation itself
+    col_indices = perm.clone().to(torch.int32)
+
+    # Indptr for CSR: [0, 1, 2, ..., n]
+    row_ptr = torch.arange(n + 1, dtype=torch.int32, device=device)
+
+    # Create sparse CSR tensor
+    sparse_matrix = torch.sparse_csr_tensor(
+        crow_indices=row_ptr,
+        col_indices=col_indices,
+        values=data,
+        size=(n, n),
+        device=device
+    )
+    return sparse_matrix
 
 class CsrBuilder:
     """ Incrementally build a sparse CSR tensor from dense blocks. """
@@ -386,6 +424,46 @@ class CSRConcatenator:
         )
         return output_csr
 
+    def blank_csr(self):
+        J = torch.sparse_csr_tensor(self.output_crow_indices, self.output_col_indices, torch.ones_like(self.output_col_indices), size=self.output_shape)
+        return J
+
+
+class CSRPermuter:
+    def __init__(self, perm_to, A_csr):
+        """ Precompute matrix permutation.
+            perm_to: perm_to[IDX] = VALUE means row VALUE should be moved to IDX / where rows should be moved to.
+       """
+        self.perm_from = reverse_permutation(perm_to)
+
+        device = A_csr.device
+        A_crow_indices = A_csr.crow_indices()
+        A_col_indices = A_csr.col_indices()
+        A_values = A_csr.values()
+
+        A_csr_permute = torch.sparse_csr_tensor(A_crow_indices, A_col_indices, torch.arange(len(A_values), dtype=torch.float32) + 1, A_csr.size(), device=device)
+        perm_mat = permutation_to_csr(self.perm_from, device=device, dtype=torch.float32)
+
+        out_mat = torch.sparse.mm(perm_mat, A_csr_permute)
+
+        self.crow_indices = out_mat.crow_indices().to(torch.int32)
+        self.col_indices = out_mat.col_indices().to(torch.int32)
+        self.val_permutation = (out_mat.values() - 1).to(torch.int32)
+        self.size = out_mat.size()
+
+
+    def matrix_permute(self, A_csr):
+        """ Precomputed permutation of a matrix."""
+        A_values = A_csr.values()
+        A_values_perm = A_values[self.val_permutation]
+
+        A_permute = torch.sparse_csr_tensor(self.crow_indices, self.col_indices, A_values_perm, self.size)
+        return A_permute
+
+    def vector_permute(self, b):
+        """ Precomputed permutation of a vector."""
+        return b[self.perm_from]
+
 
 def coo_row_select(sparse_coo: torch.sparse_coo_tensor, row_mask) -> torch.sparse_coo_tensor:
     """
@@ -535,10 +613,15 @@ def CSRToInt32(sparse_csr: torch.Tensor) -> torch.Tensor:
 
     return sparse_csr_int32
 
-def CSRTorchToCP(csr_tensor: torch.Tensor) -> cp.sparse.csr_matrix:
-    pass
 
+def reverse_permutation(indices):
+    # Create an empty tensor for the reversed permutation with the same length as indices
+    reversed_indices = torch.empty_like(indices)
 
+    # Populate the reversed indices
+    for i, target_position in enumerate(indices):
+        reversed_indices[target_position] = i
+    return reversed_indices
 
 
 # Example Usage

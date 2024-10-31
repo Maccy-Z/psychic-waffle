@@ -10,7 +10,7 @@ from pde.graph_grid.graph_store import DerivGraph, Point
 from pde.graph_grid.graph_store import P_Types as T
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
-
+from pde.utils_sparse import reverse_permutation
 
 class UGraph(UBase):
     """ Holder for graph structure. """
@@ -35,6 +35,8 @@ class UGraph(UBase):
     deriv_calc: FinDerivCalcSPMV
     deriv_orders_bc: dict[int, list]  # [N_deriv_BC, 2]     # Derivative order for each derivative BC
 
+    row_perm: Tensor # [N_us_grad] # Permutation for Jacobian matrix
+
     def __init__(self, setup_dict: dict[int, Point], grad_acc:int = 2, max_degree:int = 2, device="cpu"):
         """ Initialize the graph with a set of points.
             setup_dict: dict[node_id, Point]. Dictionary of each type of point
@@ -45,7 +47,7 @@ class UGraph(UBase):
         self.N_pdes = len([P for P in setup_dict.values() if T.PDE in P.point_type])
 
         # 1) Reorder points by order: P_Normal -> P_Derivative -> P_Boundary. Redefines node values.
-        sort_order = {T.Normal: 0, T.DirichBC: 1, T.NeumOffsetBC: 2, T.NeumCentralBC: 3}
+        # sort_order = {T.Normal: 0, T.DirichBC: 1, T.NeumOffsetBC: 2, T.NeumCentralBC: 3}
         # sorted_points = sorted(setup_dict.values(), key=lambda x: sort_order[x.point_type])
         sorted_points = sorted(setup_dict.values(), key=lambda x: x.X[1])
 
@@ -53,13 +55,10 @@ class UGraph(UBase):
 
         # 1.1) Compute jacobian permutation
         jacob_dict = {i:point for i, point in enumerate(v for v in setup_dict.values() if T.GRAD in v.point_type)}
-
         jacob_main_pos = {i:point for i, point in jacob_dict.items() if (T.NeumOffsetBC not in point.point_type and T.GRAD in point.point_type)}
         jacob_neum_pos = {i:point for i, point in jacob_dict.items() if T.NeumOffsetBC in point.point_type}
-
-        torch.save({"neum": list(jacob_neum_pos.keys()), "main": list(jacob_main_pos.keys())}, "jacob_pos.pth")
-        exit(4)
-
+        row_perm = torch.tensor(list(jacob_main_pos.keys()) + list(jacob_neum_pos.keys()))
+        self.row_perm = row_perm
 
         # 2) Compute finite difference stencils / graphs.
         # Each gradient type has its own stencil and graph.
