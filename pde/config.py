@@ -40,26 +40,30 @@ class FwdConfig:
 
             "solver": {
                 "monitor_residual": 1,
-                "print_solve_stats": 1,
-                "solver": "PBICGSTAB",
+                #"print_solve_stats": 1,
+                "solver": "FGMRES", #"PBICGSTAB", #
                 "convergence": "RELATIVE_INI_CORE",
-                "tolerance": 1e-4,
+                "tolerance": 1e-2,
                 "max_iters": 100,
-                #"gmres_n_restart": 250,
-                "preconditioner": "MULTICOLOR_DILU"
-                # "smoother": "DENSE_LU_SOLVER",
-            #     "preconditioner": {
-            #         "print_grid_stats": 1,
-            #         "smoother": "JACOBI", # BLOCK_JACOBI
-            #         "solver": "AMG",
-            #         "algorithm": "AGGREGATION",
-            #         "selector": "SIZE_2",
-            #         #"max_iters": 2,
-            #         # "presweeps": 2,
-            #         # "postsweeps": 2,
-            #         "cycle": "V",
-            #         "max_levels": 3,
-            #     }
+                "gmres_n_restart": 100,
+                "preconditioner": "NOSOLVER",
+                #"preconditioner": "BLOCK_JACOBI",
+
+                "preconditioner": {
+                    "smoother": {"solver": "JACOBI_L1",  # "MULTICOLOR_GS", #"BLOCK_JACOBI",#
+                                 "relaxation_factor": 1.9,
+                                 },
+                    # "smoother": "NOSOLVER",
+                    "solver": "AMG",
+                    "coarse_solver": "DENSE_LU_SOLVER",
+                    "algorithm": "AGGREGATION",  # "CLASSICAL", #
+                    "selector": "SIZE_8",
+                    "max_iters": 2,
+                    "presweeps": 11,
+                    "postsweeps": 11,
+                    "cycle": "V",
+                    "max_levels": 3,
+                },
             }
             # "solver": "DENSE_LU_SOLVER",
         }

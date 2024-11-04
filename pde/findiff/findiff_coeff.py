@@ -206,7 +206,7 @@ def _calc_coeff_single(j, X, diff_order, diff_acc, N_us_tot, min_points, max_poi
         try:
             _, neigh_idx = kdtree.query(X, k=i)
             neigh_Xs = Xs_all[neigh_idx]
-            w, _ = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, "abs_weight_norm", atol=6e-4, eps=6e-8)
+            w, _ = fin_diff_weights(X, neigh_Xs, diff_order, diff_acc, "abs_weight_norm", atol=1e-3, eps=6e-8)
         except ConvergenceError:
             print(f"{j} Adding more points")
         else:
@@ -262,7 +262,7 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
     Xs_all = torch.stack([point.X for point in point_dict.values()])
     kdtree = KDTree(Xs_all)
     N_us_tot = len(point_dict)
-    min_points = min(75, N_us_tot)
+    min_points = min(50, N_us_tot)
     max_points = min(251, N_us_tot + 1)
 
     pde_dict = {idx: point for idx, point in point_dict.items() if P_Types.GRAD in point.point_type}

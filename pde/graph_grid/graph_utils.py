@@ -153,7 +153,7 @@ def test_grid(xmin: float, xmax: float, N: Tensor, device='cpu'):
 
     # Combine the grids to form the final N x M grid of points
     Xs = torch.stack([m_grid, n_grid], dim=-1).view(-1, 2)  # shape = [N, 2]
-    Xs = Xs + (torch.rand_like(Xs)-0.5) * dx / 1.5
+    Xs = Xs + (torch.rand_like(Xs)-0.5) * dx / 1.3
 
 
     c_print(f'Grid Range: {Xmin.tolist()} to {Xmax.tolist()}.', 'green')
@@ -162,7 +162,7 @@ def test_grid(xmin: float, xmax: float, N: Tensor, device='cpu'):
     return Xs
 
 
-def plot_interp_graph(points, values, resolution=100):
+def plot_interp_graph(points, values, resolution=1000):
     # Create a grid over the coordinate space
     # Convert points and values to numpy arrays if they aren't already
     points, values = points.detach().cpu().numpy(), values.detach().cpu().numpy()
@@ -178,7 +178,7 @@ def plot_interp_graph(points, values, resolution=100):
     grid_z = griddata(points, values, (grid_x, grid_y), method='nearest')
 
     # Plot the interpolated data
-    plt.figure(figsize=(12, 12))
+    plt.figure(figsize=(16, 16))
     plt.imshow(grid_z.T, extent=(x_min, x_max, y_min, y_max), origin='lower', cmap='viridis')
     plt.colorbar()
 

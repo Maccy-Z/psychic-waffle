@@ -13,6 +13,7 @@ def gen_rand_sp_matrix(rows, cols, density, device="cpu"):
     return torch.sparse_coo_tensor(edge_index, values, (rows, cols)).to(device).to_sparse_csr()
 
 def plot_sparsity(A):
+    A = A.to_dense()[1000:1500, 1000:1500]
     sparse_coo = A.to_sparse_coo().coalesce()
     indices = sparse_coo.indices()
     rows = indices[0].cpu().numpy()
@@ -24,7 +25,7 @@ def plot_sparsity(A):
     dense_binary[rows, cols] = 1
 
     # Plot using imshow
-    plt.figure(figsize=(6, 5))
+    plt.figure(figsize=(10, 10))
     plt.imshow(dense_binary, cmap='Greys', interpolation='none', aspect='auto')
     plt.xlabel('Columns')
     plt.ylabel('Rows')

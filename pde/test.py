@@ -3,12 +3,77 @@ import torch
 from pde.solvers.linear_solvers import LinearSolver
 from pde.utils_sparse import plot_sparsity, CSRPermuter
 from cprint import c_print
+from pde.graph_grid.graph_utils import diag_permute
 
 def condition_num(A):
     u, s, v = torch.svd(A)
     condition_number = s.max().item() / s.min().item()
 
     c_print(f'{condition_number = }', color="bright_cyan")
+
+def power_iteration(A, num_iters=100, tol=1e-6, device='cpu'):
+    """Estimate the largest singular value using Power Iteration."""
+    # Initialize a random vector
+    b_k = torch.randn(A.size(1), 1, device=device)
+    b_k = b_k / torch.norm(b_k)
+
+    for _ in range(num_iters):
+        # Compute A^T * (A * b_k)
+        Ab = torch.sparse.mm(A, b_k)
+        AtAb = torch.sparse.mm(A.transpose(0, 1), Ab)
+
+        # Compute the norm
+        sigma = torch.norm(AtAb)
+
+        # Re-normalize the vector
+        b_k1 = AtAb / sigma
+
+        # Check for convergence
+        if torch.norm(b_k1 - b_k) < tol:
+            break
+
+        b_k = b_k1
+
+    return sigma.item()
+
+def inverse_power_iteration(A, num_iters=100, tol=1e-6, device='cpu'):
+    """Estimate the smallest singular value using Inverse Power Iteration."""
+    # Initialize a random vector
+    b_k = torch.randn(A.size(1), 1, device=device)
+    b_k = b_k / torch.norm(b_k)
+
+    # To perform inverse iteration, we need to solve (A^T A) x = b_k
+    # For large sparse matrices, consider using iterative solvers like CG
+    # Here, we'll use a simple fixed number of iterations for demonstration
+
+    for _ in range(num_iters):
+        # Compute A^T * (A * b_k)
+        AtAb = torch.sparse.mm(A.transpose(0, 1), torch.sparse.mm(A, b_k))
+
+        # Solve (A^T A) x = b_k approximately
+        # Here, using gradient descent step as a placeholder
+        # For better performance, use a proper iterative solver
+        x = AtAb.clone()  # Placeholder for solver step
+
+        # Normalize
+        b_k1 = x / torch.norm(x)
+
+        # Check for convergence
+        if torch.norm(b_k1 - b_k) < tol:
+            break
+
+        b_k = b_k1
+
+    # After convergence, estimate the smallest singular value
+    sigma_min = torch.norm(torch.sparse.mm(A, b_k))
+    return sigma_min.item()
+
+def condition_number(A, num_iters=100, tol=1e-6, device='cpu'):
+    """Compute the condition number of a sparse matrix A."""
+    sigma_max = power_iteration(A, num_iters, tol, device)
+    sigma_min = inverse_power_iteration(A, num_iters, tol, device)
+    return sigma_max / sigma_min if sigma_min != 0 else float('inf')
+
 
 
 def reverse_permutation(indices):
@@ -49,85 +114,100 @@ lin_solve_cfg = {
             "config_version": 2,
             "determinism_flag": 0,
             "exception_handling": 1,
-
+            # "solver": {"solver": "BLOCK_JACOBI",
+            #
+            #            "relaxation_factor": 0.1,
+            #            "max_iters": 100
+            #            }
             "solver": {
                 "monitor_residual": 1,
-                #"print_solve_stats": 1,
-                "solver": "PBICGSTAB",
+                "print_solve_stats": 1,
+                "solver": "GMRES", #"PBICGSTAB", #
                 "convergence": "RELATIVE_INI_CORE",
+                "norm": "L2",
                 "tolerance": 1e-4,
-                "max_iters": 1001,
-                # "gmres_n_restart": 75,
-                # "preconditioner": "NOSOLVER",
+                "max_iters": 100,
+                "gmres_n_restart": 100,
+                "preconditioner": "NOSOLVER",
+                #
                 "preconditioner": {
+                    "print_grid_stats": 1,
+                    "smoother": {"solver": "JACOBI_L1",  # "MULTICOLOR_GS", #"BLOCK_JACOBI",#
+                                 "relaxation_factor": 1.8,
+                                 },
+                    # "smoother": "NOSOLVER",
                     "solver": "AMG",
-                    "algorithm": "CLASSICAL",
-                    #"selector": "SIZE_4",
-                    "max_iters": 2,
+                    "coarse_solver": "DENSE_LU_SOLVER",
+                    "algorithm": "AGGREGATION",  # "CLASSICAL", #
+                    "selector": "SIZE_8",
+                    "max_iters": 3,
+                    "presweeps": 10,
+                    "postsweeps": 10,
                     "cycle": "V",
-                    #"max_levels": 5,
-                    #"max_matching_iterations": 1,
-                }
-            }
-            # "solver": "BLOCK_JACOBI",
-        }
+                    "max_levels": 3,
+                },
+                # "preconditioner": {"solver": "BLOCK_JACOBI",
+                #                     "relaxation_factor": 0.1,
+                #                    "max_iters": 3
+                #                    },
+}
+
+}
 
 def main():
     with open("jacobian.pth", "rb") as f:
-        jacobian = torch.load(f)
+        jacobian = torch.load(f, weights_only=True)
     with open("residuals.pth", "rb") as f:
-        residuals = torch.load(f)
+        residuals = torch.load(f, weights_only=True)
     with open("jacob_pos.pth", "rb") as f:
-        perm_dict = torch.load(f)
+        perm_dict = torch.load(f, weights_only=True)
+    N_jacob = int(jacobian.shape[0])
 
-    j = jacobian
-    r = residuals
-    print(sorted(torch.abs(jacobian.to_dense().diag()).tolist())[:100])
-    # jacobian = jacobian.to_dense().to_sparse_csr()
+    residuals = torch.ones_like(residuals)
+    #c_print(f'{residuals = }', color="bright_yellow")
 
-    # jacobian = jacobian + torch.eye(jacobian.shape[0], device=jacobian.device)* 0.1
+    """Modify Jacobian"""
+    # Permutation
+    perm = diag_permute(jacobian.to_sparse_coo()).copy()
+    # jacobian = jacobian.to_dense()[perm, :][:, perm].to_sparse_csr()
+    # residuals = residuals[perm]
 
-    # perm_mat, row_perm = random_permutation_matrix(jacobian.shape[0], dtype=jacobian.dtype, device=jacobian.device)
-    # row_perm = torch.tensor(perm_dict["main"] + perm_dict["neum"])
-    # c_print(f'{row_perm = }', color="bright_cyan")
+    # Normalise
+    jac_dense = jacobian.to_dense()
+    scale = torch.norm(jac_dense, dim=1)#
+    #scale = torch.diag(jacobian.to_dense())
+    mask = scale.abs() < 1.
+    scale[mask] = 1.
+    scale_mat = torch.diag(1 / scale)
+    # jacobian = scale_mat @ jacobian
+    # residuals = scale_mat @ residuals
 
-    # row_perm = reverse_permutation(row_perm)
-    # jacobian = j.to_dense()[row_perm]
-    # residuals = r[row_perm]
-
-    # permuter = CSRPermuter(row_perm, j)
-    # jacobian = permuter.matrix_permute(j)
-    # residuals = permuter.vector_permute(r)
-
-    # print(torch.allclose(jac2.to_dense(), jacobian.to_dense()))
-    plot_sparsity(jacobian)
-    # plot_sparsity(jac2)
-
+    # print(condition_num(jac_dense))
     # exit(9)
-    # # jacobian = perm_mat@jacobian
-    # # residuals = perm_mat@residuals
-
-
-    # jac_dense = jacobian.to_dense()
-    # print(f'{jac_dense.shape = }')
-    # c_print(f'rank = {torch.linalg.matrix_rank(jac_dense)}', color='bright_cyan')
-    # condition_num(jac_dense)
-    # print()
+    #plot_sparsity(jacobian)
 
     # AMGX solver
     solver = LinearSolver(LinMode.AMGX, "cuda", cfg=lin_solve_cfg)
     jacobian_amgx = solver.preproc_sparse(jacobian)
     result = solver.solve(jacobian_amgx, residuals)
-    print(result[:25])
+    c_print(result[:25], color="bright_cyan")
 
     # Exact solver
     solver_exact = LinearSolver(LinMode.SPARSE, "cuda")
     jacobian_cp = solver_exact.preproc(jacobian)
     true_result = solver_exact.solve(jacobian_cp, residuals)
-    print(f'{true_result[:25]}')
+    c_print(f'{true_result[:25]}', color="cyan")
+
+    resid = jacobian @ result - residuals
+    resid_norm = torch.linalg.norm(resid)
+    resid_percent = resid_norm / torch.linalg.norm(residuals) * 100
+    c_print(f'Residual norm {resid_norm.item() :.3g}', color="bright_red")
+    c_print(f'Residual {resid_percent.item() :.3g} %', color="bright_red")
+    error_percent = torch.linalg.norm(result - true_result) / torch.linalg.norm(true_result) * 100
+    c_print(f'Error percent: {error_percent.item():.3g}', color="bright_red")
 
 if __name__ == "__main__":
     torch.manual_seed(0)
-    torch.set_printoptions(precision=3, sci_mode=False, linewidth=200)
+    torch.set_printoptions(precision=3, sci_mode=True, linewidth=200)
     main()
 

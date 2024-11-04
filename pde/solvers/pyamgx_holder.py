@@ -3,6 +3,7 @@ import logging
 
 import torch
 import pyamgx
+import cupy as cp
 
 # Configure logging for debugging purposes
 logger = logging.getLogger("pyamgx_handler")
@@ -49,8 +50,14 @@ class PyAMGXSolver:
 
     def solve(self, b, x):
         """ Solve the system Ax = b """
+        # b = cp.from_dlpack(b)
+        # x_cp = cp.from_dlpack(x)
+        # self.b.upload(b)
+        # self.x.upload(x_cp)
+
         self.b.upload_torch(b)
         self.x.upload_torch(x)
+
         self.solver.solve(self.b, self.x)
 
         self.x.download_torch(x)
@@ -60,6 +67,8 @@ class PyAMGXSolver:
 
     def __del__(self):
         logger.info("Destroying solver AMGX objects.")
+        self.solver.destroy()
+
         try:
             self.A.destroy()
             self.x.destroy()
@@ -68,8 +77,8 @@ class PyAMGXSolver:
             print(e)
 
         # Created during init
-        self.solver.destroy()
-        self.resources.destroy()
+        # TODO: Fix this
+        # self.resources.destroy()
         self.cfg.destroy()
 
 

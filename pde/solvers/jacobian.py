@@ -138,7 +138,7 @@ class GraphJacobCalc(JacobCalc):
 
         # torch.save(jacobian, "jacobian.pth")
         # torch.save(residuals, "residuals.pth")
-        # from pde.utils_sparse import plot_sparsity
+        from pde.utils_sparse import plot_sparsity
         # plot_sparsity(jacobian)
         # exit(4)
 

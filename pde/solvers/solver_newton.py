@@ -39,6 +39,7 @@ class SolverNewton:
                 jac_preproc = self.lin_solver.preproc_tensor(jacobian)
                 del jacobian # torch.cuda.empty_cache()
                 deltas = self.lin_solver.solve(jac_preproc, residuals)
+            deltas = torch.clamp(deltas, -0.5, 0.5)
             deltas *= self.lr
             self.sol_grid.update_grid(deltas)
 

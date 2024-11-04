@@ -13,7 +13,7 @@ def new_graph(cfg):
     cfg = Config()
 
     spacing = 0.01
-    n_grid = 99
+    n_grid = 100
 
     Xs_perim = gen_perim(1, 1, spacing)
     perim_mask = (Xs_perim[:, 0] == 0)
