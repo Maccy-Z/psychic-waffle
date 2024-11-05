@@ -114,11 +114,6 @@ lin_solve_cfg = {
             "config_version": 2,
             "determinism_flag": 0,
             "exception_handling": 1,
-            # "solver": {"solver": "BLOCK_JACOBI",
-            #
-            #            "relaxation_factor": 0.1,
-            #            "max_iters": 100
-            #            }
             "solver": {
                 "monitor_residual": 1,
                 "print_solve_stats": 1,
@@ -133,16 +128,16 @@ lin_solve_cfg = {
                 "preconditioner": {
                     "print_grid_stats": 1,
                     "smoother": {"solver": "JACOBI_L1",  # "MULTICOLOR_GS", #"BLOCK_JACOBI",#
-                                 "relaxation_factor": 1.8,
+                                 "relaxation_factor": 1.7,
                                  },
                     # "smoother": "NOSOLVER",
                     "solver": "AMG",
                     "coarse_solver": "DENSE_LU_SOLVER",
                     "algorithm": "AGGREGATION",  # "CLASSICAL", #
                     "selector": "SIZE_8",
-                    "max_iters": 3,
-                    "presweeps": 10,
-                    "postsweeps": 10,
+                    "max_iters": 2,
+                    "presweeps": 5,
+                    "postsweeps": 5,
                     "cycle": "V",
                     "max_levels": 3,
                 },
@@ -150,9 +145,8 @@ lin_solve_cfg = {
                 #                     "relaxation_factor": 0.1,
                 #                    "max_iters": 3
                 #                    },
-}
-
-}
+                }
+            }
 
 def main():
     with open("jacobian.pth", "rb") as f:

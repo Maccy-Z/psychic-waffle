@@ -1,5 +1,4 @@
 import torch
-from fontTools.ttx import process
 from torch import Tensor
 from cprint import c_print
 from codetiming import Timer
@@ -10,7 +9,6 @@ from pde.graph_grid.graph_store import DerivGraph, Point
 from pde.graph_grid.graph_store import P_Types as T
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
-from pde.utils_sparse import reverse_permutation
 
 class UGraph(UBase):
     """ Holder for graph structure. """

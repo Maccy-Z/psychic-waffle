@@ -60,5 +60,5 @@ def setup_logging():
     mpl_logger = logging.getLogger('matplotlib')
     mpl_logger.setLevel(logging.WARNING)
 
-    logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='\033[31m%(levelname)s: \033[33m%(message)s \033[0m')
+    logging.basicConfig(level=logging.WARNING, stream=sys.stdout, format='\033[31m%(levelname)s: \033[33m%(message)s \033[0m')
     logging.info('Logging setup complete')

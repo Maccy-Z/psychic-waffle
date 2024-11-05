@@ -69,11 +69,6 @@ class GraphJacobCalc(JacobCalc):
         self.csr_summer = CSRSummer(deriv_jac_list)
 
         dummy_jac = self.csr_summer.blank_csr()
-        #plot_sparsity(dummy_jac)
-        # dummy_jac = dummy_jac.to_dense().float()
-        # print(torch.linalg.matrix_rank(dummy_jac))
-        # print(dummy_jac.shape)
-        # exit(())
         self.transposer = CSRTransposer(dummy_jac, check_sparsity=True)
 
         if u_graph.neumann_mode:
@@ -82,8 +77,6 @@ class GraphJacobCalc(JacobCalc):
             dummy_jac_full = self.concatenator.blank_csr()
 
             self.permuter = CSRPermuter(u_graph.row_perm, dummy_jac_full)
-            # print(dummy_jac_full)
-            # exit(9)
 
     @torch.no_grad()
     def jacobian(self):
@@ -138,7 +131,7 @@ class GraphJacobCalc(JacobCalc):
 
         # torch.save(jacobian, "jacobian.pth")
         # torch.save(residuals, "residuals.pth")
-        from pde.utils_sparse import plot_sparsity
+        # from pde.utils_sparse import plot_sparsity
         # plot_sparsity(jacobian)
         # exit(4)
 

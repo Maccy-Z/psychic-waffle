@@ -59,8 +59,8 @@ class FwdConfig:
                     "algorithm": "AGGREGATION",  # "CLASSICAL", #
                     "selector": "SIZE_8",
                     "max_iters": 2,
-                    "presweeps": 11,
-                    "postsweeps": 11,
+                    "presweeps": 10,
+                    "postsweeps": 10,
                     "cycle": "V",
                     "max_levels": 3,
                 },

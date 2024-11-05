@@ -1,4 +1,5 @@
 from codetiming import Timer
+import time
 import logging
 import torch
 
@@ -16,11 +17,12 @@ class SolverNewton:
 
         self.N_iter = cfg.N_iter
         self.lr = cfg.lr
-        # self.N_points = sol_grid.N_points
         self.solve_acc = cfg.acc
 
         self.jac_calc = jac_calc
         self.device = sol_grid.device
+
+        self.logging = self.new_log()
 
     def find_pde_root(self):
         """
@@ -34,12 +36,15 @@ class SolverNewton:
             with Timer(text="Time to calculate jacobian: : {:.4f}", logger=logging.debug):
                 jacobian, residuals = self.jac_calc.jacobian()
 
+            self.logging["residual"] = torch.mean(torch.abs(residuals))
+            st = time.time()
             with Timer(text="Time to solve: : {:.4f}", logger=logging.debug):
                 # Convert jacobian to sparse here instead of in lin_solver, so we can delete the dense Jacobian asap.
                 jac_preproc = self.lin_solver.preproc_tensor(jacobian)
                 del jacobian # torch.cuda.empty_cache()
                 deltas = self.lin_solver.solve(jac_preproc, residuals)
-            deltas = torch.clamp(deltas, -0.5, 0.5)
+
+            self.logging["time"] += time.time() - st
             deltas *= self.lr
             self.sol_grid.update_grid(deltas)
 
@@ -48,3 +53,5 @@ class SolverNewton:
                 logging.info(f"Newton solver converged early at iteration {i+1}")
                 break
 
+    def new_log(self):
+        return {"time": 0.0, "residual": 0.}
