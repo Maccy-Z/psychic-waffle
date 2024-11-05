@@ -3,7 +3,7 @@ import logging
 
 import torch
 import pyamgx
-import cupy as cp
+from cprint import c_print
 
 # Configure logging for debugging purposes
 logger = logging.getLogger("pyamgx_handler")
@@ -118,8 +118,7 @@ class PyAMGXManager:
 
             pyamgx.finalize()
         except Exception as e:
-            print("OHNO")
-            print(e)
+            c_print(f"OHNO, amgx exception: {e}", "bright_red")
             pass
 
     def create_solver(self, cfg: dict) -> PyAMGXSolver:
