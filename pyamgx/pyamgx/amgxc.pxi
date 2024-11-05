@@ -177,6 +177,6 @@ cdef extern from "amgx_c.h":
     #         const AMGX_vector_handle vec,
     #         void *data)
 
-    void* vector_pointer_get(AMGX_vector_handle vec)
+    # void* vector_pointer_get(AMGX_vector_handle vec)
 
 

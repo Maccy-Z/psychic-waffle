@@ -243,21 +243,21 @@ cdef class Vector:
 
         return tensor
 
-    def download_torch_zerocopy(self):
-        """
-        Download data from the Vector to a torch.Tensor.
-        :param tensor:
-        :return:
-        """
-        n, _ = self.get_size()
-
-        cdef void* ptr = vector_pointer_get(self.vec)
-
-        address = <unsigned long long><float*>ptr
-        # print(f"Pointer address: 0x{address:016x}")
-        mem = cupy.cuda.UnownedMemory(address, n*4, owner=None)
-        memptr = cupy.cuda.MemoryPointer(mem, offset=0)
-        tensor = cupy.ndarray((n,), dtype=cupy.float32, memptr=memptr)
-
-        tensor = torch.as_tensor(tensor, device="cuda")
-        return tensor
+    # def download_torch_zerocopy(self):
+    #     """
+    #     Download data from the Vector to a torch.Tensor.
+    #     :param tensor:
+    #     :return:
+    #     """
+    #     n, _ = self.get_size()
+    #
+    #     cdef void* ptr = vector_pointer_get(self.vec)
+    #
+    #     address = <unsigned long long><float*>ptr
+    #     # print(f"Pointer address: 0x{address:016x}")
+    #     mem = cupy.cuda.UnownedMemory(address, n*4, owner=None)
+    #     memptr = cupy.cuda.MemoryPointer(mem, offset=0)
+    #     tensor = cupy.ndarray((n,), dtype=cupy.float32, memptr=memptr)
+    #
+    #     tensor = torch.as_tensor(tensor, device="cuda")
+    #     return tensor
