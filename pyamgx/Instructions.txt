@@ -11,6 +11,5 @@ conda install cudatoolkit-dev
 Install gcc 11 and g++ 11
 Set so conda env uses gcc 11
 conda install -c conda-forge gcc_linux-64=11 gxx_linux-64=11
-
 ln -s $(conda info --base)/envs/{your_env_name}/bin/x86_64-conda_cos6-linux-gnu-gcc $(conda info --base)/envs/{your_env_name}/bin/gcc
 ln -s $(conda info --base)/envs/{your_env_name}/bin/x86_64-conda_cos6-linux-gnu-g++ $(conda info --base)/envs/{your_env_name}/bin/g++
