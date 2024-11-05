@@ -165,12 +165,12 @@ base_solve_cfg = {
         },
     }
 }
-test_params = {"solver": {"max_iters": [100],
-                       "preconditioner": {"smoother": {"relaxation_factor": [1.6, 1.8, 1.9]},
+test_params = {"solver": {"max_iters": [80, 90, 100],
+                       "preconditioner": {"smoother": {"relaxation_factor": [1.5, 1.75, 1.9]},
                                           "selector": ["SIZE_4", "SIZE_8"],
-                                          #"presweeps": [5, 7, 10, 12, 15],
+                                          "presweeps": [9, 10, 12],
                                           #"postsweeps": [5, 7, 10],
-                                          "max_levels": [3, 4],
+                                          "max_levels": [2, 3, 4],
                                           }
                        }
                }
@@ -182,15 +182,17 @@ def main():
 
     cfg = Config()
     pde_fn = Poisson(cfg, device=cfg.DEVICE)
+    u_graph = load_graph()
 
     log_vals = []
     for test_cfg, test_vals in zip(test_cfgs, all_cfgs):
+        torch.cuda.empty_cache()
         test_cfg["solver"]["preconditioner"]["postsweeps"] = test_cfg["solver"]["preconditioner"]["presweeps"]
         cfg.fwd_cfg.lin_solve_cfg = test_cfg
 
-        u_graph = load_graph()
-
+        u_graph.reset()
         pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())
+
         pde_adj.forward_solve()
 
         log = pde_adj.newton_solver.logging
@@ -199,7 +201,12 @@ def main():
         print(f'{test_vals = }, {t = :.3g}, {residual = :.3g}')
         log_vals.append((t, residual))
 
+        pde_adj.newton_solver.lin_solver.amgx_solver.__del__()
+
     pareto_indices = find_pareto_optimal_indices(log_vals)
+    print()
+    print()
+
     for idx in pareto_indices:
         print(f'{all_cfgs[idx]}: t = {log_vals[idx][0]:.3g}, residual = {log_vals[idx][1]:.3g}')
 

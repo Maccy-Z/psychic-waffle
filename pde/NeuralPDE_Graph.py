@@ -29,14 +29,14 @@ class NeuralPDEGraph:
         newton_solver = SolverNewton(pde_forward, us_graph, fwd_lin_solver, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
 
         # Adjoint solver
-        adj_lin_solver = LinearSolver(adj_cfg.lin_mode, self.DEVICE, adj_cfg.lin_solve_cfg)
-        adj_jacob_calc = get_jac_calc(us_graph, pde_forward, adj_cfg)
-        pde_adjoint = PDEAdjoint(us_graph, pde_fn, adj_jacob_calc, adj_lin_solver, loss_fn)
+        # adj_lin_solver = LinearSolver(adj_cfg.lin_mode, self.DEVICE, adj_cfg.lin_solve_cfg)
+        # adj_jacob_calc = get_jac_calc(us_graph, pde_forward, adj_cfg)
+        # pde_adjoint = PDEAdjoint(us_graph, pde_fn, adj_jacob_calc, adj_lin_solver, loss_fn)
 
         self.pde_fn = pde_fn
         self.us_graph = us_graph
         self.newton_solver = newton_solver
-        self.pde_adjoint = pde_adjoint
+        # self.pde_adjoint = pde_adjoint
 
     def forward_solve(self):
         """ Solve PDE forward problem. """

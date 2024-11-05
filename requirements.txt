@@ -4,7 +4,6 @@ scipy
 codetiming
 torch
 # Using conda condacupy # conda
-torch
 git+https://github.com/Maccy-Z/c_print.git
 cython
 torch_geometric

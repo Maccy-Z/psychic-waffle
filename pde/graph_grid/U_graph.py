@@ -122,6 +122,10 @@ class UGraph(UBase):
     #     adj_mat_sp = torch.sparse_coo_tensor(edge_idxs, dummy_val, (self.N_us_tot, self.N_us_tot))
     #     return adj_mat_sp
 
+    def reset(self):
+        self.us = torch.zeros_like(self.us)
+
+
     def _cuda(self):
         """ Move graph data to CUDA. """
         self.us = self.us.cuda(non_blocking=True)
