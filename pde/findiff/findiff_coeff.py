@@ -1,7 +1,6 @@
 import torch
 from typing import Literal
 from functools import lru_cache, wraps
-
 from scipy.spatial import KDTree
 from cprint import c_print
 from torch.multiprocessing import Pool
@@ -250,6 +249,7 @@ global_kdtree, global_Xs_all = None, None
 def _init_pool(kdtree, Xs_all):
     global global_kdtree, global_Xs_all
     global_kdtree, global_Xs_all = kdtree, Xs_all
+
 
 def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[int, int]):
     """ Calculate finite difference coefficients.

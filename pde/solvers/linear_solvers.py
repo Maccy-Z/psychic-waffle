@@ -48,7 +48,6 @@ class LinearSolver:
     def cuda_amgx(self, A_cp: cp.array, b: torch.Tensor):
         # Cupy to sparse is faster than torch to sparse
         self.amgx_solver.init_solver_cp(A_cp)
-
         x = torch.zeros_like(b)
         x = self.amgx_solver.solve(b, x)
         return x

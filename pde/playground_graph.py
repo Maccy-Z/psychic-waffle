@@ -12,21 +12,27 @@ from pde.loss import DummyLoss
 def new_graph(cfg):
     cfg = Config()
 
-    spacing = 0.01
     n_grid = 100
+    spacing = 1/(n_grid + 1)
 
     Xs_perim = gen_perim(1, 1, spacing)
-    perim_mask = (Xs_perim[:, 0] == 0)
+    perim_mask = (Xs_perim[:, 1] > 0) & (Xs_perim[:, 1] < 1) & (Xs_perim[:, 0] ==0)
     Xs_neumann = Xs_perim[perim_mask]
+    #print(Xs_neumann)
     Xs_dirich = Xs_perim[~perim_mask]
+
+    Xs_ghost = Xs_neumann.clone()
+    Xs_ghost[:, 0] = Xs_ghost[:, 0] - spacing
     Xs_bulk = test_grid(spacing, (1- spacing), torch.tensor([n_grid, n_grid]), device="cpu")
 
     Xs_fix = [Point(P_Types.DirichBC, X, value=0.) for X in Xs_dirich]
     deriv = ([(1, 0)], 0.)
-    Xs_deriv = [Point(P_Types.NeumOffsetBC, X, value=0., derivatives=deriv) for X in Xs_neumann]
-
+    Xs_deriv = [Point(P_Types.NeumCentralBC , X, value=0., derivatives=deriv) for X in Xs_neumann]
+    Xs_ghost = [Point(P_Types.Ghost, X, value=0.) for X in Xs_ghost]
     Xs_bulk = [Point(P_Types.Normal, X, value= 0.) for X in Xs_bulk]
-    Xs_all = {i: X for i, X in enumerate(Xs_deriv + Xs_fix + Xs_bulk)}
+
+
+    Xs_all = {i: X for i, X in enumerate(Xs_deriv + Xs_fix + Xs_bulk + Xs_ghost)}
     u_graph = UGraph(Xs_all, grad_acc=4, device=cfg.DEVICE)
 
     with open("save_u_graph.pth", "wb") as f:

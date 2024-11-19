@@ -27,46 +27,51 @@ class FwdConfig:
 
     # Newton Raphson PDE solver settings
     lin_mode: LinMode = LinMode.AMGX
-    N_iter: int = 5
+    N_iter: int = 2
     lr: float = 1.
     acc: float = 0.
 
     def __post_init__(self):
-        # self.lin_solve_cfg = {"maxiter": self.maxiter, "restart": self.restart, "rtol": self.rtol}
         self.lin_solve_cfg = {
             "config_version": 2,
             "determinism_flag": 0,
             "exception_handling": 1,
 
             "solver": {
-                "monitor_residual": 1,
+                "obtain_timings": 1,
+                # "monitor_residual": 1,
                 #"print_solve_stats": 1,
-                "solver": "FGMRES", #"PBICGSTAB", #
+                "solver": "FGMRES",  # "PBICGSTAB", #
+                # "use_scalar_norm": 1,
                 "convergence": "RELATIVE_INI_CORE",
-                "tolerance": 1e-2,
-                "max_iters": 100,
-                "gmres_n_restart": 100,
+                "tolerance": 1e-3,
+                "max_iters": 500,
+                "gmres_n_restart": 250,
                 "preconditioner": "NOSOLVER",
-                #"preconditioner": "BLOCK_JACOBI",
 
-                "preconditioner": {
-                    "smoother": {"solver": "JACOBI_L1",  # "MULTICOLOR_GS", #"BLOCK_JACOBI",#
-                                 "relaxation_factor": 1.9,
-                                 },
-                    # "smoother": "NOSOLVER",
-                    "solver": "AMG",
-                    "coarse_solver": "DENSE_LU_SOLVER",
-                    "algorithm": "AGGREGATION",  # "CLASSICAL", #
-                    "selector": "SIZE_8",
-                    "max_iters": 2,
-                    "presweeps": 10,
-                    "postsweeps": 10,
-                    "cycle": "V",
-                    "max_levels": 3,
-                },
+                # "preconditioner": {
+                #     "smoother": {"solver": "JACOBI_L1",
+                #                  "relaxation_factor": 1.6,
+                #                  },
+                #     "solver": "AMG",
+                #     "coarse_solver": "DENSE_LU_SOLVER",
+                #     "algorithm": "AGGREGATION",
+                #     "selector": "SIZE_4",
+                #     "max_iters": 3,
+                #     "presweeps": 7,
+                #     "postsweeps": 7,
+                #     "cycle": "V",
+                #     "max_levels": 3,
+                # },
+
             }
             # "solver": "DENSE_LU_SOLVER",
         }
+
+        if self.lin_mode == LinMode.ITERATIVE:
+            self.lin_solve_cfg = {"maxiter": self.maxiter, "restart": self.restart, "rtol": self.rtol}
+
+
 
 @dataclass
 class AdjointConfig:

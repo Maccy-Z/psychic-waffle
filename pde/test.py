@@ -128,16 +128,16 @@ lin_solve_cfg = {
                 "preconditioner": {
                     "print_grid_stats": 1,
                     "smoother": {"solver": "JACOBI_L1",  # "MULTICOLOR_GS", #"BLOCK_JACOBI",#
-                                 "relaxation_factor": 1.7,
+                                 "relaxation_factor": 1.2,
                                  },
                     # "smoother": "NOSOLVER",
                     "solver": "AMG",
                     "coarse_solver": "DENSE_LU_SOLVER",
                     "algorithm": "AGGREGATION",  # "CLASSICAL", #
                     "selector": "SIZE_8",
-                    "max_iters": 2,
-                    "presweeps": 5,
-                    "postsweeps": 5,
+                    "max_iters": 3,
+                    "presweeps": 10,
+                    "postsweeps": 10,
                     "cycle": "V",
                     "max_levels": 3,
                 },

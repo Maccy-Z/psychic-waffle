@@ -54,6 +54,9 @@ class JacobCalc:
         jacobian, _ = self.jacobian()
         return jacobian.T
 
+    def residauls(self):
+        raise NotImplementedError
+
 class GraphJacobCalc(JacobCalc):
     """ Use pde_func's inbuilt method to calculate jacobian"""
     def __init__(self, u_graph: UGraph, pde_fwd:PDEForwardGraph):
@@ -140,6 +143,18 @@ class GraphJacobCalc(JacobCalc):
     def jacob_transpose(self):
         jacobian, _ = self.jacobian()
         return self.transposer.transpose(jacobian)
+
+    def residuals(self):
+
+        us_all = self.u_graph.us  # Shape = [N_total].
+        Xs = self.u_graph.Xs[self.u_graph.pde_mask]  # Shape = [N_total, 2].
+
+        # 1) Finite differences D. shape = [N_pde, N_derivs]
+        grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
+        u_dus = torch.stack(list(grads_dict.values()), dim=-1)    # shape = [N_pde, N_derivs]
+
+        residuals = func.vmap(self.pde_fwd.residuals)(u_dus, Xs)
+        return residuals
 
 
 class SplitJacobCalc(JacobCalc):

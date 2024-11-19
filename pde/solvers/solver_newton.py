@@ -10,8 +10,8 @@ from pde.solvers.jacobian import JacobCalc
 from pde.solvers.linear_solvers import LinearSolver
 
 class SolverNewton:
-    def __init__(self, pde_func: PDEForward, sol_grid: UBase, lin_solver: LinearSolver, jac_calc: JacobCalc, cfg: FwdConfig):
-        self.pde_func = pde_func
+    def __init__(self,  sol_grid: UBase, lin_solver: LinearSolver, jac_calc: JacobCalc, cfg: FwdConfig):
+        #self.pde_func = pde_func
         self.sol_grid = sol_grid
         self.lin_solver = lin_solver
 
@@ -36,7 +36,6 @@ class SolverNewton:
             with Timer(text="Time to calculate jacobian: : {:.4f}", logger=logging.debug):
                 jacobian, residuals = self.jac_calc.jacobian()
 
-            self.logging["residual"] = torch.mean(torch.abs(residuals))
             st = time.time()
             with Timer(text="Time to solve: : {:.4f}", logger=logging.debug):
                 # Convert jacobian to sparse here instead of in lin_solver, so we can delete the dense Jacobian asap.
@@ -48,10 +47,15 @@ class SolverNewton:
             deltas *= self.lr
             self.sol_grid.update_grid(deltas)
 
-            logging.debug(f'Iteration {i}, Mean residual: {torch.mean(torch.abs(residuals)):.3g}')
+            residuals = self.jac_calc.residuals()
+            mean_abs_residual = torch.mean(torch.abs(residuals))
+            self.logging["residual"] = mean_abs_residual
+
+            logging.debug(f'Iteration {i}, Mean residual: {mean_abs_residual:.3g}')
             if torch.mean(torch.abs(residuals)) < self.solve_acc:
                 logging.info(f"Newton solver converged early at iteration {i+1}")
                 break
+
 
     def new_log(self):
         return {"time": 0.0, "residual": 0.}

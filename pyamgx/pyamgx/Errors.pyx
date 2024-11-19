@@ -59,4 +59,5 @@ def check_error(err_code):
         Error code returned from call to an AMGX routine.
     """
     if err_code is not RC.OK:
+        print("ERROR")
         raise AMGXError(get_error_string(err_code))

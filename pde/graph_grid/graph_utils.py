@@ -183,7 +183,7 @@ def plot_interp_graph(points, values, resolution=1000):
     plt.colorbar()
 
     # Scatter plot of the original points
-    plt.scatter(points[:, 0], points[:, 1], marker='.', s=20)
+    plt.scatter(points[:, 0], points[:, 1], marker='.', s=40)
 
     # Title and axis labels
     plt.title(f'Nearest Neighbor Interpolation')

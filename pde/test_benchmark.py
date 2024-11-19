@@ -142,7 +142,7 @@ base_solve_cfg = {
 
     "solver": {
         "monitor_residual": 1,
-        "solver": "FGMRES",  # "PBICGSTAB", #
+        "solver": "PBICGSTAB", #"FGMRES",  #
         "convergence": "RELATIVE_INI_CORE",
         "tolerance": 1e-2,
         "max_iters": 100,
@@ -151,7 +151,7 @@ base_solve_cfg = {
 
         "preconditioner": {
             "smoother": {"solver": "JACOBI_L1",
-                         "relaxation_factor": 1.9,
+                         "relaxation_factor": 1.,
                          },
             "solver": "AMG",
             "coarse_solver": "DENSE_LU_SOLVER",
@@ -165,16 +165,16 @@ base_solve_cfg = {
         },
     }
 }
-test_params = {"solver": {"max_iters": [80, 90, 100],
-                       "preconditioner": {"smoother": {"relaxation_factor": [1.5, 1.75, 1.9]},
+test_params = {"solver": {"max_iters": [250, 500],
+                       "preconditioner": {"smoother": {"relaxation_factor": [0.1, 0.5, 1.0, 1.5]},
                                           "selector": ["SIZE_4", "SIZE_8"],
-                                          "presweeps": [9, 10, 12],
+                                          "max_iters": [1, 2, 3],
+                                          "presweeps": [1, 3, 6, 9],
                                           #"postsweeps": [5, 7, 10],
-                                          "max_levels": [2, 3, 4],
+                                          "max_levels": [2, 3],
                                           }
                        }
                }
-
 
 
 def main():
@@ -187,8 +187,11 @@ def main():
     log_vals = []
     for test_cfg, test_vals in zip(test_cfgs, all_cfgs):
         torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
         test_cfg["solver"]["preconditioner"]["postsweeps"] = test_cfg["solver"]["preconditioner"]["presweeps"]
         cfg.fwd_cfg.lin_solve_cfg = test_cfg
+        cfg.fwd_cfg.N_iter = 5
 
         u_graph.reset()
         pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())
@@ -212,7 +215,7 @@ def main():
 
 if __name__ == "__main__":
     # Sample evaluation results: (time_taken, loss)
-    setup_logging()
+    setup_logging(debug=False)
     torch.manual_seed(0)
     torch.set_printoptions(precision=2, sci_mode=False, linewidth=200)
     main()

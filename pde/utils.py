@@ -53,12 +53,16 @@ def adjust_slice(slice_obj, start_adjust=0, stop_adjust=0):
     new_stop = slice_obj.stop + stop_adjust
     return slice(new_start, new_stop)
 
-def setup_logging():
+def setup_logging(debug=True):
     import logging
     import sys
 
     mpl_logger = logging.getLogger('matplotlib')
     mpl_logger.setLevel(logging.WARNING)
 
-    logging.basicConfig(level=logging.WARNING, stream=sys.stdout, format='\033[31m%(levelname)s: \033[33m%(message)s \033[0m')
+    if debug:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.WARNING
+    logging.basicConfig(level=log_level, stream=sys.stdout, format='\033[31m%(levelname)s: \033[33m%(message)s \033[0m')
     logging.info('Logging setup complete')

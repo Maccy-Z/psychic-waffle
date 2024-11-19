@@ -38,7 +38,7 @@ class PyAMGXSolver:
         if self.setup:
             self.A.replace_coefficients(cp_matrix.data)
         else:
-            # print(f'{cp_matrix.nnz = }')
+            # print(f'{cp_matrix.values = }')
             self.A.upload_CSR(cp_matrix)
             self.solver.setup(self.A)
             # self.setup = True
@@ -54,7 +54,7 @@ class PyAMGXSolver:
         # x_cp = cp.from_dlpack(x)
         # self.b.upload(b)
         # self.x.upload(x_cp)
-
+        # exit(9)
         self.b.upload_torch(b)
         self.x.upload_torch(x)
 
@@ -107,8 +107,8 @@ class PyAMGXManager:
 
     def initialize_library(self):
         # Replace with actual library initialization code
-        logger.debug("AMGX initialized.")
         pyamgx.initialize()
+        logger.debug("AMGX initialized.")
 
     def destructor(self):
         try:

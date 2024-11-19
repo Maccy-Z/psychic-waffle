@@ -26,7 +26,7 @@ class NeuralPDEGraph:
         # Forward solver
         fwd_lin_solver = LinearSolver(fwd_cfg.lin_mode, cfg.DEVICE, cfg=fwd_cfg.lin_solve_cfg)
         fwd_jacob_calc = get_jac_calc(us_graph, pde_forward, fwd_cfg)
-        newton_solver = SolverNewton(pde_forward, us_graph, fwd_lin_solver, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
+        newton_solver = SolverNewton(us_graph, fwd_lin_solver, jac_calc=fwd_jacob_calc, cfg=fwd_cfg)
 
         # Adjoint solver
         # adj_lin_solver = LinearSolver(adj_cfg.lin_mode, self.DEVICE, adj_cfg.lin_solve_cfg)

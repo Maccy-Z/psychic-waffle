@@ -2,7 +2,6 @@ import torch
 from torch import Tensor
 from cprint import c_print
 from codetiming import Timer
-from torch.multiprocessing import Pool
 
 from pde.BaseU import UBase
 from pde.graph_grid.graph_store import DerivGraph, Point
@@ -91,6 +90,7 @@ class UGraph(UBase):
                 neum_mask.append(True)
             else:
                 neum_mask.append(False)
+
 
         self.neumann_mode = len(deriv_val) > 0
         if self.neumann_mode:

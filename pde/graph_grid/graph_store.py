@@ -1,6 +1,5 @@
 import torch
 from dataclasses import dataclass
-from pde.graph_grid.graph_utils import gen_perim
 from enum import Flag, auto
 
 

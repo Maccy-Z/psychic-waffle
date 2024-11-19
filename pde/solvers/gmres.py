@@ -172,6 +172,7 @@ def gmres(A, b, x0=None, rtol=1e-5, restart=None, maxiter=None, M=None, atol=Non
         if r_norm <= atol or iters >= maxiter:
             break
         v = r / r_norm
+        print(f'{v = }')
         V[:, 0] = v
         e[0] = r_norm
 
@@ -179,11 +180,19 @@ def gmres(A, b, x0=None, rtol=1e-5, restart=None, maxiter=None, M=None, atol=Non
         for j in range(restart):
             # z = psolve(v)
             u = matvec(v) #matvec(z)
+            print()
+            # print(f'u start = {u}')
             H[:j+1, j], u = compute_hu(u, j)
+
             cublas.nrm2(u, out=H[j+1, j])
             if j+1 < restart:
                 v = u / H[j+1, j]
                 V[:, j+1] = v
+                print(f'v_new = {v}')
+                print("H[:j+1] = \n", H[:4, :4])
+
+            if j == 5:
+                exit(9)
 
         # Note: The least-square solution to equation Hy = e is computed on CPU
         # because it is faster if the matrix size is small.
@@ -258,7 +267,7 @@ def main():
 
     print(f'All close: {torch.allclose(result1, result2)}')
 
-
+#
 if __name__ == "__main__":
     main()
 
