@@ -17,7 +17,7 @@ class LinMode(StrEnum):
 class FwdConfig:
     # Forward linear solver settings
     maxiter: int = 500
-    restart: int = 250
+    restart: int = 500
     rtol: float = 1e-4
     lin_solve_cfg: dict = None
 
@@ -26,6 +26,7 @@ class FwdConfig:
     jac_mode: JacMode = JacMode.GRAPH
 
     # Newton Raphson PDE solver settings
+    lin_mode: LinMode = LinMode.ITERATIVE
     lin_mode: LinMode = LinMode.AMGX
     N_iter: int = 2
     lr: float = 1.
@@ -46,23 +47,23 @@ class FwdConfig:
                 "convergence": "RELATIVE_INI_CORE",
                 "tolerance": 1e-3,
                 "max_iters": 500,
-                "gmres_n_restart": 250,
+                "gmres_n_restart": 10,
                 "preconditioner": "NOSOLVER",
 
-                # "preconditioner": {
-                #     "smoother": {"solver": "JACOBI_L1",
-                #                  "relaxation_factor": 1.6,
-                #                  },
-                #     "solver": "AMG",
-                #     "coarse_solver": "DENSE_LU_SOLVER",
-                #     "algorithm": "AGGREGATION",
-                #     "selector": "SIZE_4",
-                #     "max_iters": 3,
-                #     "presweeps": 7,
-                #     "postsweeps": 7,
-                #     "cycle": "V",
-                #     "max_levels": 3,
-                # },
+                "preconditioner": {
+                    "smoother": {"solver": "JACOBI_L1",
+                                 "relaxation_factor": 1.6,
+                                 },
+                    "solver": "AMG",
+                    "coarse_solver": "DENSE_LU_SOLVER",
+                    "algorithm": "AGGREGATION",
+                    "selector": "SIZE_4",
+                    "max_iters": 3,
+                    "presweeps": 7,
+                    "postsweeps": 7,
+                    "cycle": "V",
+                    "max_levels": 1,
+                },
 
             }
             # "solver": "DENSE_LU_SOLVER",
