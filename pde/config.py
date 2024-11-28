@@ -16,8 +16,8 @@ class LinMode(StrEnum):
 @dataclass
 class FwdConfig:
     # Forward linear solver settings
-    maxiter: int = 500
-    restart: int = 500
+    maxiter: int = 12
+    restart: int = 12
     rtol: float = 1e-4
     lin_solve_cfg: dict = None
 
@@ -28,7 +28,7 @@ class FwdConfig:
     # Newton Raphson PDE solver settings
     lin_mode: LinMode = LinMode.ITERATIVE
     lin_mode: LinMode = LinMode.AMGX
-    N_iter: int = 2
+    N_iter: int = 1
     lr: float = 1.
     acc: float = 0.
 
@@ -42,12 +42,12 @@ class FwdConfig:
                 "obtain_timings": 1,
                 # "monitor_residual": 1,
                 #"print_solve_stats": 1,
-                "solver": "FGMRES",  # "PBICGSTAB", #
+                "solver": "FGMRES",  #"PBICGSTAB", #
                 # "use_scalar_norm": 1,
                 "convergence": "RELATIVE_INI_CORE",
-                "tolerance": 1e-3,
-                "max_iters": 500,
-                "gmres_n_restart": 10,
+                # "tolerance": 1e-3,
+                "max_iters": 15,
+                "gmres_n_restart": 15,
                 "preconditioner": "NOSOLVER",
 
                 "preconditioner": {
@@ -62,7 +62,7 @@ class FwdConfig:
                     "presweeps": 7,
                     "postsweeps": 7,
                     "cycle": "V",
-                    "max_levels": 1,
+                    "max_levels": 2,
                 },
 
             }

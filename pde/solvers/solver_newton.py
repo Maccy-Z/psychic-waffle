@@ -51,7 +51,7 @@ class SolverNewton:
             mean_abs_residual = torch.mean(torch.abs(residuals))
             self.logging["residual"] = mean_abs_residual
 
-            logging.debug(f'Iteration {i}, Mean residual: {mean_abs_residual:.3g}')
+            logging.debug(f'Iteration {i}, Mean residual: {mean_abs_residual:.4g}')
             if torch.mean(torch.abs(residuals)) < self.solve_acc:
                 logging.info(f"Newton solver converged early at iteration {i+1}")
                 break
