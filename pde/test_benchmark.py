@@ -142,11 +142,13 @@ base_solve_cfg = {
 
     "solver": {
         "monitor_residual": 1,
-        "solver": "PBICGSTAB", #"FGMRES",  #
+        "solver": "FGMRES", #"PBICGSTAB", #
         "convergence": "RELATIVE_INI_CORE",
         "tolerance": 1e-2,
         "max_iters": 100,
         "gmres_n_restart": 100,
+        "gram_schmidt_options": "REORTHOGONALIZED",
+
         "preconditioner": "NOSOLVER",
 
         "preconditioner": {
@@ -165,12 +167,12 @@ base_solve_cfg = {
         },
     }
 }
-test_params = {"solver": {"max_iters": [250, 500],
-                       "preconditioner": {"smoother": {"relaxation_factor": [0.1, 0.5, 1.0, 1.5]},
-                                          "selector": ["SIZE_4", "SIZE_8"],
+test_params = {"solver": {"max_iters": [125, 250],
+                       "preconditioner": {"smoother": {"relaxation_factor": [1., 1.2, 1.4, 1.6, 1.7]},
+                                          "selector": ["SIZE_2", "SIZE_4", "SIZE_8"],
                                           "max_iters": [1, 2, 3],
-                                          "presweeps": [1, 3, 6, 9],
-                                          #"postsweeps": [5, 7, 10],
+                                          "presweeps": [1, 3, 5, 7],
+                                          "postsweeps": [1, 3, 5, 7],
                                           "max_levels": [2, 3],
                                           }
                        }
@@ -189,7 +191,7 @@ def main():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
-        test_cfg["solver"]["preconditioner"]["postsweeps"] = test_cfg["solver"]["preconditioner"]["presweeps"]
+        # test_cfg["solver"]["preconditioner"]["postsweeps"] = test_cfg["solver"]["preconditioner"]["presweeps"]
         cfg.fwd_cfg.lin_solve_cfg = test_cfg
         cfg.fwd_cfg.N_iter = 5
 
