@@ -54,7 +54,7 @@ def true_pde():
     pde_adj.forward_solve()
     us, Xs = u_graph.us, u_graph.Xs
 
-    print(f'{us.max() = }')
+    # print(f'{us.max() = }')
     plot_interp_graph(Xs, us)
 
 # def main():

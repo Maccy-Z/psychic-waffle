@@ -28,7 +28,7 @@ class FwdConfig:
     # Newton Raphson PDE solver settings
     lin_mode: LinMode = LinMode.ITERATIVE
     lin_mode: LinMode = LinMode.AMGX
-    N_iter: int = 1
+    N_iter: int = 1000
     lr: float = 1.
     acc: float = 0.
 
@@ -46,8 +46,10 @@ class FwdConfig:
                 # "use_scalar_norm": 1,
                 "convergence": "RELATIVE_INI_CORE",
                 # "tolerance": 1e-3,
-                "max_iters": 15,
-                "gmres_n_restart": 15,
+                "max_iters": 250,
+                "gmres_n_restart": 250,
+                "gram_schmidt_options": "REORTHOGONALIZED",   # REORTHOGONALIZED
+
                 "preconditioner": "NOSOLVER",
 
                 "preconditioner": {
@@ -58,7 +60,7 @@ class FwdConfig:
                     "coarse_solver": "DENSE_LU_SOLVER",
                     "algorithm": "AGGREGATION",
                     "selector": "SIZE_4",
-                    "max_iters": 3,
+                    "max_iters": 2,
                     "presweeps": 7,
                     "postsweeps": 7,
                     "cycle": "V",
