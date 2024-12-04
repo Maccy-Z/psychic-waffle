@@ -4,10 +4,11 @@ scipy
 codetiming
 torch
 # Using conda condacupy # conda
-cupy-cuda12x
+# cupy-cuda12x
 torch
 git+https://github.com/Maccy-Z/c_print.git
 cython
-#torch_geometric
-#torch_sparse
-#torch_scatter
+torch_geometric
+torch_sparse
+torch_scatter
+meshpy

@@ -8,6 +8,23 @@ from pde.NeuralPDE_Graph import NeuralPDEGraph
 from pdes.PDEs import Poisson, LearnedFunc
 from pde.utils import setup_logging
 from pde.loss import DummyLoss
+from pde.mesh_generation.generate_mesh import gen_points_full
+
+def mesh_graph(cfg):
+    cfg = Config()
+
+    _, points, p_tags = gen_points_full()
+
+    points = torch.from_numpy(points).float()
+    Xs_all = {}
+    for i, (point, tag) in enumerate(zip(points, p_tags)):
+        if P_Types.DERIV in tag:
+            Xs_all[i] = Point(tag, point, value=0., derivatives=([(1, 0)], 0.))
+        else:
+            Xs_all[i] = Point(tag, point, value=0.)
+
+    u_graph = UGraph(Xs_all, grad_acc=4, device=cfg.DEVICE)
+    return u_graph
 
 def new_graph(cfg):
     cfg = Config()
@@ -47,7 +64,7 @@ def load_graph(cfg):
 def true_pde():
     cfg = Config()
     u_graph = load_graph(cfg)
-
+    #u_graph = mesh_graph(cfg)
     pde_fn = Poisson(cfg, device=cfg.DEVICE)
     pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())
 
