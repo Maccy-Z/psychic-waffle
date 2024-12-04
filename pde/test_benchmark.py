@@ -141,12 +141,10 @@ base_solve_cfg = {
     "exception_handling": 1,
 
     "solver": {
-        "monitor_residual": 1,
         "solver": "FGMRES", #"PBICGSTAB", #
         "convergence": "RELATIVE_INI_CORE",
-        "tolerance": 1e-2,
-        "max_iters": 100,
-        "gmres_n_restart": 100,
+        "max_iters": -1,
+        "gmres_n_restart": -1,
         "gram_schmidt_options": "REORTHOGONALIZED",
 
         "preconditioner": "NOSOLVER",
@@ -167,12 +165,12 @@ base_solve_cfg = {
         },
     }
 }
-test_params = {"solver": {"max_iters": [125, 250],
-                       "preconditioner": {"smoother": {"relaxation_factor": [1., 1.2, 1.4, 1.6, 1.7]},
+test_params = {"solver": {"max_iters": [100, 125, 150],
+                       "preconditioner": {"smoother": {"relaxation_factor": [1.5, 1.6, 1.7]},
                                           "selector": ["SIZE_2", "SIZE_4", "SIZE_8"],
                                           "max_iters": [1, 2, 3],
-                                          "presweeps": [1, 3, 5, 7],
-                                          "postsweeps": [1, 3, 5, 7],
+                                          "presweeps": [1, 5, 7],
+                                          #"postsweeps": [1, 3, 5, 7],
                                           "max_levels": [2, 3],
                                           }
                        }
@@ -191,9 +189,10 @@ def main():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
-        # test_cfg["solver"]["preconditioner"]["postsweeps"] = test_cfg["solver"]["preconditioner"]["presweeps"]
+        test_cfg["solver"]["gmres_n_restart"] = test_cfg["solver"]["max_iters"]
+        test_cfg["solver"]["preconditioner"]["postsweeps"] = test_cfg["solver"]["preconditioner"]["presweeps"]
         cfg.fwd_cfg.lin_solve_cfg = test_cfg
-        cfg.fwd_cfg.N_iter = 5
+        cfg.fwd_cfg.N_iter = 3
 
         u_graph.reset()
         pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())

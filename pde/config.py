@@ -39,13 +39,10 @@ class FwdConfig:
             "exception_handling": 1,
 
             "solver": {
-                "obtain_timings": 1,
-                # "monitor_residual": 1,
+                "obtain_timings": 0,
                 #"print_solve_stats": 1,
                 "solver": "FGMRES",  #"PBICGSTAB", #
-                # "use_scalar_norm": 1,
                 "convergence": "RELATIVE_INI_CORE",
-                # "tolerance": 1e-3,
                 "max_iters": 250,
                 "gmres_n_restart": 250,
                 "gram_schmidt_options": "REORTHOGONALIZED",   # REORTHOGONALIZED
