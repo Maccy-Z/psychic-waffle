@@ -1,10 +1,9 @@
 import torch
 
-from pde.graph_grid.graph_store import Point, P_Types
-from pde.graph_grid.U_graph import UGraph
-from pde.graph_grid.graph_utils import test_grid, gen_perim, plot_interp_graph
+import pickle
 from pde.config import Config
 from pde.NeuralPDE_Graph import NeuralPDEGraph
+from pde.graph_grid.graph_utils import plot_interp_graph
 from pdes.PDEs import Poisson, LearnedFunc
 from pde.utils import setup_logging
 from pde.loss import DummyLoss
@@ -202,25 +201,40 @@ def main():
         log = pde_adj.newton_solver.logging
         t = log['time']
         residual = log['residual'].item()
-        print(f'{test_vals = }, {t = :.3g}, {residual = :.3g}')
+        print(f'\n{test_vals = }, {t = :.3g}, {residual = :.3g}')
         log_vals.append((t, residual))
 
         pde_adj.newton_solver.lin_solver.amgx_solver.__del__()
+        del pde_adj
 
-        if i > 2:
-            break
+        with open("log_dump.pkl", "wb") as f:
+            pickle.dump(log_vals, f)
 
+    # pareto_indices = find_pareto_optimal_indices(log_vals)
+    # print()
+    # print()
+    #
+    # for idx in pareto_indices:
+    #     print(f'{all_cfgs[idx]}: t = {log_vals[idx][0]:.3g}, residual = {log_vals[idx][1]:.3g}')
+
+def test():
+    with open("log_dump.pkl", "rb") as f:
+        log_vals = pickle.load(f)
     pareto_indices = find_pareto_optimal_indices(log_vals)
     print()
     print()
-
+    test_cfgs, all_cfgs = generate_configurations(base_solve_cfg, test_params)
     for idx in pareto_indices:
         print(f'{all_cfgs[idx]}: t = {log_vals[idx][0]:.3g}, residual = {log_vals[idx][1]:.3g}')
 
+
+
 if __name__ == "__main__":
     # Sample evaluation results: (time_taken, loss)
-    setup_logging(debug=True)
+    setup_logging(debug=False)
     torch.manual_seed(0)
     torch.set_printoptions(precision=2, sci_mode=False, linewidth=200)
     main()
+
+    test()
 
