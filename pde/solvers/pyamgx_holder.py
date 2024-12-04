@@ -15,6 +15,8 @@ class PyAMGXSolver:
     A = None
     b = None
     x = None
+    # Track if already freed
+    destroyed = False
 
     def __init__(self, cfg: dict):
         """ Initialise the AMGXSolver and create the necessary objects """
@@ -78,9 +80,9 @@ class PyAMGXSolver:
 
         # Created during init
         # TODO: Fix this
-        # self.resources.destroy()
+        self.resources.destroy()
         self.cfg.destroy()
-
+        self.destroyed = True
 
 class PyAMGXManager:
     """ Hodler to ensure that AMGX is initialized and finalized """
@@ -114,7 +116,8 @@ class PyAMGXManager:
         try:
             logger.info("AMGX destructor called.")
             for s in self.solvers:
-                s.__del__()
+                if not s.destroyed:
+                    s.__del__()
 
             pyamgx.finalize()
         except Exception as e:

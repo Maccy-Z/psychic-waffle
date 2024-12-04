@@ -207,6 +207,8 @@ def main():
 
         pde_adj.newton_solver.lin_solver.amgx_solver.__del__()
 
+        break
+
     pareto_indices = find_pareto_optimal_indices(log_vals)
     print()
     print()
@@ -216,7 +218,7 @@ def main():
 
 if __name__ == "__main__":
     # Sample evaluation results: (time_taken, loss)
-    setup_logging(debug=False)
+    setup_logging(debug=True)
     torch.manual_seed(0)
     torch.set_printoptions(precision=2, sci_mode=False, linewidth=200)
     main()
