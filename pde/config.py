@@ -43,25 +43,25 @@ class FwdConfig:
                 #"print_solve_stats": 1,
                 "solver": "FGMRES",  #"PBICGSTAB", #
                 "convergence": "RELATIVE_INI_CORE",
-                "max_iters": 250,
-                "gmres_n_restart": 250,
+                "max_iters": 175,
+                "gmres_n_restart": 175,
                 "gram_schmidt_options": "REORTHOGONALIZED",   # REORTHOGONALIZED
 
                 "preconditioner": "NOSOLVER",
 
                 "preconditioner": {
                     "smoother": {"solver": "JACOBI_L1",
-                                 "relaxation_factor": 1.6,
+                                 "relaxation_factor": 1.8,
                                  },
                     "solver": "AMG",
                     "coarse_solver": "DENSE_LU_SOLVER",
                     "algorithm": "AGGREGATION",
-                    "selector": "SIZE_4",
-                    "max_iters": 2,
-                    "presweeps": 7,
-                    "postsweeps": 7,
+                    "selector": "SIZE_8",
+                    "max_iters": 1,
+                    "presweeps": 8,
+                    "postsweeps": 8,
                     "cycle": "V",
-                    "max_levels": 2,
+                    "max_levels": 4,
                 },
 
             }

@@ -149,8 +149,8 @@ base_solve_cfg = {
         "preconditioner": "NOSOLVER",
 
         "preconditioner": {
-            "smoother": {"solver": "JACOBI_L1",
-                         "relaxation_factor": 1.,
+            "smoother": {"solver": "JACOBI_L1", #"MULTICOLOR_GS",
+                         "relaxation_factor": 0.2,
                          },
             "solver": "AMG",
             "coarse_solver": "DENSE_LU_SOLVER",
@@ -164,13 +164,14 @@ base_solve_cfg = {
         },
     }
 }
-test_params = {"solver": {"max_iters": [150, 175, 200],
-                       "preconditioner": {"smoother": {"relaxation_factor": [1.5, 1.6, 1.7]},
+test_params = {"solver": {"max_iters": [175, 200, 212, 225],
+                       "preconditioner": {"smoother": {"relaxation_factor": [1.8, 1.9]},
                                           "selector": ["SIZE_8"],
-                                          "max_iters": [1, 2, 3],
-                                          "presweeps": [5, 6, 7],
+                                          "max_iters": [1],
+                                          "presweeps": [4, 5, 6, 7, 8],
                                           #"postsweeps": [1, 3, 5, 7],
-                                          "max_levels": [2, 3],
+                                            "cycle": ["V"],
+                                          "max_levels": [4],
                                           }
                        }
                }
