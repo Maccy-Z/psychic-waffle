@@ -7,7 +7,7 @@ from pde.graph_grid.graph_utils import plot_interp_graph
 from pdes.PDEs import Poisson, LearnedFunc
 from pde.utils import setup_logging
 from pde.loss import DummyLoss
-
+from cprint import c_print
 
 import itertools
 import copy
@@ -164,11 +164,11 @@ base_solve_cfg = {
         },
     }
 }
-test_params = {"solver": {"max_iters": [100, 125, 150],
+test_params = {"solver": {"max_iters": [150, 175, 200],
                        "preconditioner": {"smoother": {"relaxation_factor": [1.5, 1.6, 1.7]},
-                                          "selector": ["SIZE_2", "SIZE_4", "SIZE_8"],
+                                          "selector": ["SIZE_8"],
                                           "max_iters": [1, 2, 3],
-                                          "presweeps": [1, 5, 7],
+                                          "presweeps": [5, 6, 7],
                                           #"postsweeps": [1, 3, 5, 7],
                                           "max_levels": [2, 3],
                                           }
@@ -223,6 +223,7 @@ def test():
     pareto_indices = find_pareto_optimal_indices(log_vals)
     print()
     print()
+    c_print("Pareto-optimal configurations:", color="bright_yellow")
     test_cfgs, all_cfgs = generate_configurations(base_solve_cfg, test_params)
     for idx in pareto_indices:
         print(f'{all_cfgs[idx]}: t = {log_vals[idx][0]:.3g}, residual = {log_vals[idx][1]:.3g}')
