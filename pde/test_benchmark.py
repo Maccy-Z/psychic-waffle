@@ -185,7 +185,7 @@ def main():
     u_graph = load_graph()
 
     log_vals = []
-    for test_cfg, test_vals in zip(test_cfgs, all_cfgs):
+    for i, (test_cfg, test_vals) in enumerate(zip(test_cfgs, all_cfgs)):
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
@@ -207,7 +207,8 @@ def main():
 
         pde_adj.newton_solver.lin_solver.amgx_solver.__del__()
 
-        break
+        if i > 2:
+            break
 
     pareto_indices = find_pareto_optimal_indices(log_vals)
     print()
