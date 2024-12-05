@@ -140,38 +140,40 @@ base_solve_cfg = {
     "exception_handling": 1,
 
     "solver": {
-        "solver": "FGMRES", #"PBICGSTAB", #
-        "convergence": "RELATIVE_INI_CORE",
-        "max_iters": -1,
-        "gmres_n_restart": -1,
-        "gram_schmidt_options": "REORTHOGONALIZED",
+                "obtain_timings": 0,
+                #"print_solve_stats": 1,
+                "solver": "FGMRES",  #"PBICGSTAB", #
+                "convergence": "RELATIVE_INI_CORE",
+                "max_iters": 5,
+                "gmres_n_restart": 5,
+                "gram_schmidt_options": "REORTHOGONALIZED",   # REORTHOGONALIZED
 
-        "preconditioner": "NOSOLVER",
+                "preconditioner": "NOSOLVER",
 
-        "preconditioner": {
-            "smoother": {"solver": "JACOBI_L1", #"MULTICOLOR_GS",
-                         "relaxation_factor": 0.2,
-                         },
-            "solver": "AMG",
-            "coarse_solver": "DENSE_LU_SOLVER",
-            "algorithm": "AGGREGATION",
-            "selector": "SIZE_8",
-            "max_iters": 2,
-            "presweeps": 10,
-            "postsweeps": 10,
-            "cycle": "V",
-            "max_levels": 3,
-        },
-    }
+                "preconditioner": {
+                    "smoother": {"solver": "JACOBI_L1",
+                                 "relaxation_factor": 1.7,
+                                 },
+                    "solver": "AMG",
+                    "coarse_solver": "DENSE_LU_SOLVER",
+                    "algorithm": "AGGREGATION",
+                    "selector": "SIZE_8",
+                    "max_iters": 2,
+                    "presweeps": 8,
+                    "postsweeps": 6,
+                    "cycle": "V",
+                    "max_levels": 3,
+                },
+            }
 }
-test_params = {"solver": {"max_iters": [175, 200, 212, 225],
-                       "preconditioner": {"smoother": {"relaxation_factor": [1.8, 1.9]},
+test_params = {"solver": {"max_iters": [300],
+                       "preconditioner": {"smoother": {"relaxation_factor": [1.3, 1.5, 1.7, 1.9]},
                                           "selector": ["SIZE_8"],
-                                          "max_iters": [1],
-                                          "presweeps": [4, 5, 6, 7, 8],
+                                          "max_iters": [1, 2],
+                                          "presweeps": [2, 4, 6, 8],
                                           #"postsweeps": [1, 3, 5, 7],
                                             "cycle": ["V"],
-                                          "max_levels": [4],
+                                          "max_levels": [3, 4],
                                           }
                        }
                }

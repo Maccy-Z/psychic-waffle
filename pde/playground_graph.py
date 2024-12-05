@@ -24,12 +24,16 @@ def mesh_graph(cfg):
             Xs_all[i] = Point(tag, point, value=0.)
 
     u_graph = UGraph(Xs_all, grad_acc=4, device=cfg.DEVICE)
+
+    with open("save_u_graph.pth", "wb") as f:
+        torch.save(u_graph, f)
+
     return u_graph
 
 def new_graph(cfg):
     cfg = Config()
 
-    n_grid = 100
+    n_grid = 125
     spacing = 1/(n_grid + 1)
 
     Xs_perim = gen_perim(1, 1, spacing)
@@ -65,6 +69,7 @@ def true_pde():
     cfg = Config()
     u_graph = load_graph(cfg)
     #u_graph = mesh_graph(cfg)
+    # u_graph = new_graph(cfg)
     pde_fn = Poisson(cfg, device=cfg.DEVICE)
     pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())
 
