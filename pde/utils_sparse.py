@@ -13,7 +13,7 @@ def gen_rand_sp_matrix(rows, cols, density, device="cpu"):
     return torch.sparse_coo_tensor(edge_index, values, (rows, cols)).to(device).to_sparse_csr()
 
 def plot_sparsity(A):
-    A = A.to_dense()[1000:1500, 1000:1500]
+    A = A.to_dense()#[1000:1500, 1000:1500]
     sparse_coo = A.to_sparse_coo().coalesce()
     indices = sparse_coo.indices()
     rows = indices[0].cpu().numpy()
@@ -625,38 +625,77 @@ def reverse_permutation(indices):
     return reversed_indices
 
 
+def block_repeat_csr(A: torch.Tensor, k: int) -> torch.Tensor:
+    """
+    Create a block-diagonal CSR matrix B by repeating a CSR matrix A 'k' times along the diagonal.
+
+    Args:
+        A (torch.sparse_csr_tensor): A sparse CSR matrix of shape (m, n).
+        k (int): Number of times to repeat A along the diagonal.
+
+    Returns:
+        torch.sparse_csr_tensor: The block-diagonal matrix B of shape (k*m, k*n).
+    """
+    if A.layout != torch.sparse_csr:
+        raise ValueError("Input A must be a torch.sparse_csr_tensor.")
+
+    m, n = A.shape
+    A_indptr = A.crow_indices()
+    A_indices = A.col_indices()
+    A_data = A.values()
+
+    # Number of nonzeros in A
+    nnz = A_indptr[-1].item()
+
+    # Prepare the arrays for B
+    # For B, we'll have k*m rows and k*n cols, and total nnz = k * nnz(A).
+    B_m = k * m
+    B_n = k * n
+
+    # Allocate storage
+    # - B_indptr: length B_m+1
+    # - B_indices, B_data: length k * nnz
+    B_indptr = torch.empty(B_m + 1, dtype=A_indptr.dtype, device=A.device)
+    B_indices = torch.empty(k * nnz, dtype=A_indices.dtype, device=A.device)
+    B_data = torch.empty(k * nnz, dtype=A_data.dtype, device=A.device)
+
+    # Fill the B_indptr, B_indices, and B_data
+    # Each block i (0-based) corresponds to rows [i*m : (i+1)*m] and columns [i*n : (i+1)*n].
+    for i in range(k):
+        start_row = i * m
+        start_nnz = i * nnz
+
+        # Indptr:
+        # For the first block, B_indptr[0:m+1] = A_indptr[0:m+1]
+        # For subsequent blocks, shift by i*nnz
+        if i == 0:
+            B_indptr[0: m + 1] = A_indptr
+        else:
+            # For block i, row pointers start at B_indptr[i*m]
+            # We want B_indptr[i*m+1 : (i+1)*m+1] = A_indptr[1:] + i*nnz
+            B_indptr[start_row + 1: start_row + m + 1] = A_indptr[1:] + start_nnz
+
+        # Indices & data:
+        # For the indices in block i, we add i*n to the original indices
+        # to shift them into the correct column block.
+        B_indices[start_nnz: start_nnz + nnz] = A_indices + i * n
+        B_data[start_nnz: start_nnz + nnz] = A_data
+
+    # Construct the final CSR matrix B
+    B = torch.sparse_csr_tensor(B_indptr, B_indices, B_data, size=(B_m, B_n))
+    return B
+
 # Example Usage
 if __name__ == "__main__":
     import time
 
     torch.set_printoptions(precision=2, sci_mode=False)
-    rows, cols = 100_000, 100_000
-    density = 0.001
+    rows, cols = 10, 10
+    density = 0.1
 
-    A_coo = gen_rand_sp_matrix(rows, cols, density).cuda()
-    A_csr = A_coo.to_sparse_csr()
-    print("Original CSR Matrix A:")
-    print()
+    A_csr = gen_rand_sp_matrix(rows, cols, density).cuda().to_sparse_csr()
+    B = block_diagonal_repeat_csr(A_csr, 2)
 
-    # Initialize the transposer with the first matrix
-    print("Precomputing Transposer...")
-    transposer = CSRTransposer(A_csr, check_sparsity=False)
-    print("Transposer Ready")
 
-    # Create multiple CSR matrices with the same sparsity pattern but different values
-    for i in range(5):
-        print(i)
-        # Generate different values for each matrix
-        new_vals = torch.randn_like(A_csr.values())
-        A_csr_new = torch.sparse_csr_tensor(A_csr.crow_indices(), A_csr.col_indices(), new_vals, A_csr.size()).cuda()
 
-        torch.cuda.synchronize()
-        st = time.time()
-        A_t = transposer.transpose(A_csr_new)
-        torch.cuda.synchronize()
-        print(f"Time taken = {time.time() - st}")
-
-        # A_t_coo = A_csr_new.to_sparse_coo().t()
-
-        # print(coo_equal(A_t_coo, A_t.to_sparse_coo()))
-
+    plot_sparsity(B)

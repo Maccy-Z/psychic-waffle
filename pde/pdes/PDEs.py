@@ -20,12 +20,14 @@ class PDEFunc(torch.nn.Module, ABC):
         Returns: PDE residual (=0 for exact solution), shape=[BS]
         """
         u_dus = list(u_dus.values())
+        exit("hi")
         return self.forward(u_dus, Xs)
 
     @abstractmethod
     def forward(self, u_dus: list[torch.Tensor], Xs: torch.Tensor):
-        """ us_dus.shape = [BS][N_grads+1]. Sorted by (0, 0), (1, 0), (0, 1), (2, 0), (1, 1), ...
+        """ us_dus.shape = [BS][N_grads+1, N_vector]. Sorted by (0, 0), (1, 0), (0, 1), (2, 0), (1, 1), ...
             In vmap-able format.
+            return.shape = [BS][N_vector]
         """
         pass
 
@@ -35,12 +37,13 @@ class Poisson(PDEFunc):
         self.to(device)
 
     def forward(self, u_dus: list[torch.Tensor], Xs: torch.Tensor):
+        #print(f'{u_dus.shape = }')
+
         u = u_dus[0]
         dudx, dudy = u_dus[1], u_dus[2]
         d2udx2, d2udxdy, d2udy2 = u_dus[3], u_dus[4], u_dus[5]
 
         resid = 1 * d2udx2 + 1 * d2udy2 + 0 * dudx + 0 * dudy - 5 * u + 5
-
         return resid
 
 class LearnedFunc(PDEFunc):

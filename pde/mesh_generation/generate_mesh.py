@@ -73,8 +73,8 @@ def create_mesh(coords: list[MeshFacet], mesh_props: MeshProps):
 
 
 def gen_points_full():
-    min_area = 2.5e-4
-    max_area = 5e-4
+    min_area = 2e-3
+    max_area = 3e-3
     xmin, xmax = 0, 4
     ymin, ymax = 0.0, 1.5
     circle_center = (0.5, 0.4)
@@ -88,7 +88,7 @@ def gen_points_full():
     coords = [#Box(Xmin, Xmax, hole=False, name="farfield", remove_edge=2),
               Line([xmin, ymin], [xmax, ymin], True, name=PT.DirichBC),
               Line([xmin, ymax], [xmax, ymax], True, name=PT.DirichBC),
-              Line([xmin, ymin], [xmin, ymax], True, name=PT.NeumOffsetBC),
+              Line([xmin, ymin], [xmin, ymax], True, name=PT.DirichBC),
               Line([xmax, ymax], [xmax, ymin], True, name=PT.DirichBC),
               Circle(circle_center, circle_radius, lengthscale, True, name=PT.DirichBC),
               Circle((1.0, 0.5), circle_radius, lengthscale, True, name=PT.DirichBC),

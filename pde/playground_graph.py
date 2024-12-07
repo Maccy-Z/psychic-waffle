@@ -23,7 +23,7 @@ def mesh_graph(cfg):
         else:
             Xs_all[i] = Point(tag, point, value=0.)
 
-    u_graph = UGraph(Xs_all, grad_acc=4, device=cfg.DEVICE)
+    u_graph = UGraph(Xs_all, N_component=1, grad_acc=4, device=cfg.DEVICE)
 
     with open("save_u_graph.pth", "wb") as f:
         torch.save(u_graph, f)
@@ -32,8 +32,9 @@ def mesh_graph(cfg):
 
 def new_graph(cfg):
     cfg = Config()
+    N_comp = 2
 
-    n_grid = 125
+    n_grid = 10
     spacing = 1/(n_grid + 1)
 
     Xs_perim = gen_perim(1, 1, spacing)
@@ -46,15 +47,15 @@ def new_graph(cfg):
     Xs_ghost[:, 0] = Xs_ghost[:, 0] - spacing
     Xs_bulk = test_grid(spacing, (1- spacing), torch.tensor([n_grid, n_grid]), device="cpu")
 
-    Xs_fix = [Point(P_Types.DirichBC, X, value=0.) for X in Xs_dirich]
+    Xs_fix = [Point(P_Types.DirichBC, X, value=[0. for _ in range(N_comp)]) for X in Xs_dirich]
     deriv = ([(1, 0)], 0.)
-    Xs_deriv = [Point(P_Types.NeumCentralBC , X, value=0., derivatives=deriv) for X in Xs_neumann]
-    Xs_ghost = [Point(P_Types.Ghost, X, value=0.) for X in Xs_ghost]
-    Xs_bulk = [Point(P_Types.Normal, X, value= 0.) for X in Xs_bulk]
+    Xs_deriv = [Point(P_Types.NeumCentralBC , X, value=[0. for _ in range(N_comp)], derivatives=deriv) for X in Xs_neumann]
+    Xs_ghost = [Point(P_Types.Ghost, X, value=[0. for _ in range(N_comp)]) for X in Xs_ghost]
+    Xs_bulk = [Point(P_Types.Normal, X, value= [0. for _ in range(N_comp)]) for X in Xs_bulk]
 
 
     Xs_all = {i: X for i, X in enumerate(Xs_deriv + Xs_fix + Xs_bulk + Xs_ghost)}
-    u_graph = UGraph(Xs_all, grad_acc=4, device=cfg.DEVICE)
+    u_graph = UGraph(Xs_all, N_component=N_comp, grad_acc=4, device=cfg.DEVICE)
 
     with open("save_u_graph.pth", "wb") as f:
         torch.save(u_graph, f)
@@ -67,17 +68,17 @@ def load_graph(cfg):
 
 def true_pde():
     cfg = Config()
-    u_graph = load_graph(cfg)
+    #u_graph = load_graph(cfg)
     #u_graph = mesh_graph(cfg)
-    # u_graph = new_graph(cfg)
+    u_graph = new_graph(cfg)
     pde_fn = Poisson(cfg, device=cfg.DEVICE)
     pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())
 
     pde_adj.forward_solve()
     us, Xs = u_graph.us, u_graph.Xs
 
-    # print(f'{us.max() = }')
-    plot_interp_graph(Xs, us)
+
+    plot_interp_graph(Xs, us[:, 0])
 
 # def main():
 #     torch.set_printoptions(linewidth=200, precision=3)
@@ -117,7 +118,7 @@ def true_pde():
 
 
 if __name__ == "__main__":
-    setup_logging()
+    setup_logging(debug=True)
     torch.manual_seed(1)
 
     true_pde()

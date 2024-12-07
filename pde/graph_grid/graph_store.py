@@ -31,7 +31,7 @@ class P_Types(Flag):
 class Point:
     point_type: P_Types
     X: torch.Tensor
-    value: float = None
+    value: float|list[float] = None
     derivatives: tuple[list[tuple], float] = None
     """ value:  If NORMAL, value = initial value. 
                 If BOUNDARY, value = boundary value. 

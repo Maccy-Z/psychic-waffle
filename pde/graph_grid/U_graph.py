@@ -12,7 +12,7 @@ from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
 class UGraph(UBase):
     """ Holder for graph structure. """
     Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
-    us: Tensor   # [N_us_tot]                   # Value at nod
+    us: Tensor   # [N_us_tot, N_component]                   # Value at node
     deriv_val: Tensor # [N_deriv_BC]            # Derivative values at nodes for BC
 
     pde_mask: Tensor  # [N_us_tot]                   # Mask for where to enforce PDE on. Bool
@@ -20,9 +20,11 @@ class UGraph(UBase):
     neumann_mask: Tensor  # [N_us_tot]                   # Mask for derivative BC nodes. Bool
     neumann_mode: bool    # True if there are derivative BCs.
 
-    N_us_tot: int         # Total number of points
-    N_us_grad: int        # Number of points that need fitting
-    N_pdes: int           # Number of points to enforce PDEs (excl BC)
+    N_us_tot: int           # Total number of points
+    N_us_grad: int          # Number of points that need fitting
+    N_pdes: int             # Number of points to enforce PDEs (excl BC)
+    N_component: int           # Number of vector components
+    N_deriv: int         # Number of derivatives used
 
     graphs: dict[tuple, DerivGraph] # [N_graphs]                  # Gradient graphs for each gradient type.
         # edge_index: torch.Tensor   # [2, num_edges]      # Edges between nodes
@@ -34,7 +36,14 @@ class UGraph(UBase):
 
     row_perm: Tensor # [N_us_grad] # Permutation for Jacobian matrix
 
-    def __init__(self, setup_dict: dict[int, Point], grad_acc:int = 2, max_degree:int = 2, device="cpu"):
+    def _check(self, setup_dict):
+        """ Check problem is well specified """
+        points = list(setup_dict.values())
+        types = [p.point_type for p in points]
+        assert types.count(T.Ghost) == types.count(T.NeumCentralBC), "Number of ghost points must equal centeral Neumann BC points."
+
+
+    def __init__(self, setup_dict: dict[int, Point], N_component, grad_acc:int = 2, max_degree:int = 2, device="cpu"):
         """ Initialize the graph with a set of points.
             setup_dict: dict[node_id, Point]. Dictionary of each type of point
          """
@@ -42,7 +51,9 @@ class UGraph(UBase):
         self.N_us_tot = len(setup_dict)
         self.N_us_grad = len([P for P in setup_dict.values() if T.GRAD in P.point_type])
         self.N_pdes = len([P for P in setup_dict.values() if T.PDE in P.point_type])
+        self.N_component = N_component
 
+        self._check(setup_dict)
         # 1) Reorder points by order: P_Normal -> P_Derivative -> P_Boundary. Redefines node values.
         # sort_order = {T.Normal: 0, T.DirichBC: 1, T.NeumOffsetBC: 2, T.NeumCentralBC: 3}
         # sorted_points = sorted(setup_dict.values(), key=lambda x: sort_order[x.point_type])
@@ -63,13 +74,13 @@ class UGraph(UBase):
         self.graphs = {}
         for degree in diff_degrees:
             c_print(f"Generating graph for degree {degree}", color="black")
-            #with Timer(text="Time taken: {time:.2f}"):
             with Timer(text="Time to solve: : {:.4f}"):
                 edge_idx, fd_weights, neighbors = calc_coeff(setup_dict, grad_acc, degree)
                 self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
 
         self.Xs = torch.stack([point.X for point in setup_dict.values()])
         self.us = torch.tensor([point.value for point in setup_dict.values()])
+        #self.us = torch.tensor([point.value for point in setup_dict.values()])
         # PDE is enforced on normal points.
         self.pde_mask = torch.tensor([T.PDE in P.point_type for P in setup_dict.values()])
         # U requires gradient for normal or ghost points.
@@ -78,7 +89,8 @@ class UGraph(UBase):
         if device == "cuda":
             self._cuda()
 
-        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_us_tot, device=self.device)
+        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_us_tot, self.N_component, device=self.device)
+        self.N_deriv = self.deriv_calc.N_deriv
 
         # 3) Derivative boundary conditions. Linear equations N X derivs - value = 0
         deriv_orders, deriv_val, neum_mask = {}, [], []
@@ -91,7 +103,6 @@ class UGraph(UBase):
             else:
                 neum_mask.append(False)
 
-
         self.neumann_mode = len(deriv_val) > 0
         if self.neumann_mode:
             self.deriv_val = torch.tensor(deriv_val)
@@ -99,7 +110,8 @@ class UGraph(UBase):
             self.neumann_mask = torch.tensor(neum_mask)
 
             self._cuda_bc()
-            self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask, self.grad_mask, self.deriv_orders_bc, self.N_us_tot, device=self.device)
+            self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask, self.grad_mask, self.deriv_orders_bc, self.N_us_tot, N_component, device=self.device)
+            exit("Not using neurman mode")
 
 
     # def _adj_mat(self):

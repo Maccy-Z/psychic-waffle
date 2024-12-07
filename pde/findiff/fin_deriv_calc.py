@@ -1,56 +1,56 @@
 import torch
-from torch_geometric.nn import MessagePassing
+# from torch_geometric.nn import MessagePassing
 
 from pde.graph_grid.graph_store import DerivGraph
 from pde.BaseDerivCalc import BaseDerivCalc
-from pde.utils_sparse import coo_row_select, coo_col_select, CSRToInt32
+from pde.utils_sparse import coo_row_select, coo_col_select, CSRToInt32, block_repeat_csr
 
 
-class FinDerivCalc(MessagePassing, BaseDerivCalc):
-    """ Compute Grad^n(u) using finite differences. """
-
-    def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask):
-        """ edge_index (dict[tuple, Tensor]): Graph connectivity in COO format with shape [2, E].
-            edge_coeffs (dict[tuple, Tensor]): Finite difference coefficients for each edge."""
-        super().__init__(aggr='add')  # Aggregation method can be 'add', 'mean', etc.
-
-        self.fd_graphs = fd_graphs
-        self.pde_mask = pde_mask
-
-    def derivative(self, Xs) -> dict[tuple, torch.Tensor]:
-        return self(Xs)
-
-    def forward(self, Xs) -> dict[tuple, torch.Tensor]:
-        """
-        Args:
-            x (Tensor): Node feature matrix of shape [N, F].
-        """
-        # Include original node value
-        derivatives = {(0, 0): Xs[self.pde_mask]}
-        for order, graph in self.fd_graphs.items():
-            edge_idx = graph.edge_idx
-            coeff = graph.weights
-
-            derivatives[order] = self.propagate(edge_idx, x=Xs.unsqueeze(-1), edge_coeff=coeff.unsqueeze(-1))[self.pde_mask].squeeze()
-        return derivatives
-
-    def message(self, x_j, edge_coeff):
-        """
-        Constructs messages from source nodes to target nodes.
-
-        Args:
-            x_j (Tensor): Source node features for each edge of shape [E, F].
-            edge_coeff (Tensor): Edge coefficients for each edge of shape [E, 1] or [E, F].
-
-        Returns:
-            Tensor: Messages to be aggregated.
-        """
-        return  edge_coeff * x_j
+# class FinDerivCalc(MessagePassing, BaseDerivCalc):
+#     """ Compute Grad^n(u) using finite differences. """
+#
+#     def __init__(self, fd_graphs: dict[tuple, DerivGraph], pde_mask):
+#         """ edge_index (dict[tuple, Tensor]): Graph connectivity in COO format with shape [2, E].
+#             edge_coeffs (dict[tuple, Tensor]): Finite difference coefficients for each edge."""
+#         super().__init__(aggr='add')  # Aggregation method can be 'add', 'mean', etc.
+#
+#         self.fd_graphs = fd_graphs
+#         self.pde_mask = pde_mask
+#
+#     def derivative(self, Xs) -> dict[tuple, torch.Tensor]:
+#         return self(Xs)
+#
+#     def forward(self, Xs) -> dict[tuple, torch.Tensor]:
+#         """
+#         Args:
+#             x (Tensor): Node feature matrix of shape [N, F].
+#         """
+#         # Include original node value
+#         derivatives = {(0, 0): Xs[self.pde_mask]}
+#         for order, graph in self.fd_graphs.items():
+#             edge_idx = graph.edge_idx
+#             coeff = graph.weights
+#
+#             derivatives[order] = self.propagate(edge_idx, x=Xs.unsqueeze(-1), edge_coeff=coeff.unsqueeze(-1))[self.pde_mask].squeeze()
+#         return derivatives
+#
+#     def message(self, x_j, edge_coeff):
+#         """
+#         Constructs messages from source nodes to target nodes.
+#
+#         Args:
+#             x_j (Tensor): Source node features for each edge of shape [E, F].
+#             edge_coeff (Tensor): Edge coefficients for each edge of shape [E, 1] or [E, F].
+#
+#         Returns:
+#             Tensor: Messages to be aggregated.
+#         """
+#         return  edge_coeff * x_j
 
 
 class FinDerivCalcSPMV(BaseDerivCalc):
     """ Using sparse matrix-vector multiplication to compute Grad^n(u) using finite differences. """
-    def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, N_us_tot, device="cpu"):
+    def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, N_us_tot, N_component, device="cpu"):
         """ Initialise sparse matrices from finite difference graphs.
             Compute d = A * u [eq_mask]. Compile eq_mask into A.
             Jacobian is A[eq_mask][us_mask]
@@ -58,19 +58,20 @@ class FinDerivCalcSPMV(BaseDerivCalc):
             eq_mask: Constraint functions (PDEs / BCs)
             grad_mask: u points that need to be updated
             N_us_tot: Total number of u points on graph.
+            N_components: Number of components in u.
         """
         self.eq_mask = eq_mask
         self.grad_mask = grad_mask
         self.device = device
 
-        self.fd_spms = {}       # shape = [N_diff], [N_eqs, N_us_tot]
-        self.jac_spms = []      # shape = [N_diff], [N_eqs, N_grad]
+        self.fd_spms = {}       # shape = [N_deriv], [N_eqs, N_us_tot]
+        self.jac_spms = []      # shape = [N_deriv], [N_eqs, N_grad]
 
         # Order (0, 0) is original node value
         only_us = torch.eye(N_us_tot, device=self.device).to_sparse_coo()
         only_us = coo_row_select(only_us, self.eq_mask)
         only_us = coo_col_select(only_us, self.grad_mask)
-        self.jac_spms.append(only_us.to_sparse_csr())   # shape = [N_diff], [N_eqs, N_us_tot]
+        self.jac_spms.append(only_us.to_sparse_csr())   # shape = [N_deriv], [N_eqs, N_us_tot]
         for order, graph in fd_graphs.items():
             edge_idx = graph.edge_idx
             edge_coeff = graph.weights
@@ -82,21 +83,27 @@ class FinDerivCalcSPMV(BaseDerivCalc):
             sp_mat_jac = CSRToInt32(sp_mat_jac.to_sparse_csr())
             self.jac_spms.append(sp_mat_jac)
 
+        # Repeat jacobian to shape [N_deriv][N_eqs*N_comp, N_grad*N_comp]
+        for i, jac_deriv in enumerate(self.jac_spms):
+            self.jac_spms[i] = block_repeat_csr(jac_deriv, N_component)
 
-    def derivative(self, Xs) -> dict[tuple, torch.Tensor]:
-        """ Xs.shape = [N_points]
+        self.N_deriv = len(self.fd_spms)
+
+
+    def derivative(self, Us) -> dict[tuple, torch.Tensor]:
+        """ Xs.shape = [N_points, N_components]
             spm.shape = [N_pde, N_points]
+            return.shape = {N_deriv: [N_pde, N_components]}
         """
-        derivatives = {(0, 0): Xs[self.eq_mask]}
+        derivatives = {(0, 0): Us[self.eq_mask]}
 
         for order, spm in self.fd_spms.items():
-
-            derivatives[order] = torch.mv(spm, Xs)
+            derivatives[order] = torch.mm(spm, Us)
         return derivatives
 
     def jacobian(self) -> list[torch.FloatTensor]:
         """ Linear transform, so jacobian is the same as the sparse matrix.
-            return.shape: [N_diff], [N_pde, N_points]
+            return.shape: [N_deriv], [N_pde*N_comp, N_points*N_comp]
          """
         return self.jac_spms
 
@@ -105,7 +112,7 @@ class NeumanBCCalc(FinDerivCalcSPMV):
     """ Compute FinDiff derivatives for (linear) Neumann BCs, and full jacobian for R = sum_n grad_n(u) - constant.
         Precompute the selection derivatives and jacobian, that directly returns residuals / residual jacobian without going through autograd / sparse matmuls
     """
-    def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, deriv_orders: dict[int, list], N_us_tot, device="cpu"):
+    def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, deriv_orders: dict[int, list], N_us_tot, N_comp, device="cpu"):
         """
             deriv_orders: dict[point_idx, list[deriv_position]]. Derivative order for each derivative BC
         """
@@ -132,8 +139,8 @@ class NeumanBCCalc(FinDerivCalcSPMV):
         del self.fd_spms
         del self.jac_spms
 
-    def derivative(self, Xs) -> torch.Tensor:
-        neumann_resid = torch.mv(self.deriv_mat, Xs)
+    def derivative(self, Us) -> torch.Tensor:
+        neumann_resid = torch.mv(self.deriv_mat, Us)
         return neumann_resid
 
     def jacobian(self) -> torch.Tensor:

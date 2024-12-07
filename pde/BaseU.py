@@ -16,7 +16,9 @@ class UBase(abc.ABC):
     grad_mask: Tensor  # Which us have gradient. Shape = [N_u_grad]
     pde_mask: Tensor  # Which PDEs are used to fit us. Automatically disregard extra points. Shape = [N_pde, ...]
     u_mask: tuple[slice, ...]  # Real us points [N_u_real]
+
     N_us_grad: int        # Number of points that need fitting
+    N_component: int           # Number of vector components
 
     pde_true_idx: Tensor
     us_grad_idx: Tensor
@@ -34,9 +36,10 @@ class UBase(abc.ABC):
     def update_grid(self, deltas):
         """
         Update grid with changes, and fix boundary conditions with new grid.
-        deltas.shape = [N]
+        deltas.shape = [N*N_comp]
         us -> us - deltas
         """
+        deltas = deltas.view(self.N_component, self.N_us_grad).T
         self.us[self.grad_mask] -= deltas
         # self._fix_bc()        # TODO: Fix boundary conditions for graph
 
