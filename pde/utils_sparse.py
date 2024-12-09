@@ -389,6 +389,7 @@ class CSRRowMultiplier:
 
 class CSRConcatenator:
     def __init__(self, csr_tensor_A, csr_tensor_B):
+        """ Concatenate two CSR tensors with fixed sparsity patterns."""
         device = csr_tensor_A.device
 
         # Total number of rows and columns

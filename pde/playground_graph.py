@@ -34,7 +34,7 @@ def new_graph(cfg):
     cfg = Config()
     N_comp = 2
 
-    n_grid = 10
+    n_grid = 20
     spacing = 1/(n_grid + 1)
 
     Xs_perim = gen_perim(1, 1, spacing)
@@ -78,7 +78,7 @@ def true_pde():
     us, Xs = u_graph.us, u_graph.Xs
 
 
-    plot_interp_graph(Xs, us[:, 0])
+    plot_interp_graph(Xs, us[:, 1])
 
 # def main():
 #     torch.set_printoptions(linewidth=200, precision=3)

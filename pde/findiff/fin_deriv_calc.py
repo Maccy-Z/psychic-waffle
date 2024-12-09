@@ -117,7 +117,7 @@ class NeumanBCCalc(FinDerivCalcSPMV):
             deriv_orders: dict[point_idx, list[deriv_position]]. Derivative order for each derivative BC
         """
         # Construct all required derivatives and jacobian.
-        super().__init__(fd_graphs, eq_mask, grad_mask, N_us_tot, device=device)
+        super().__init__(fd_graphs, eq_mask, grad_mask, N_us_tot, N_comp, device=device)
 
         # Build up full derivative matrix, combining all derivatives. [sum_n(deriv_n)] u - N = 0
         deriv_mat = []
@@ -135,12 +135,16 @@ class NeumanBCCalc(FinDerivCalcSPMV):
 
         self.jac_mat = coo_col_select(deriv_mat, self.grad_mask).to_sparse_csr()   # shape = [N_eqs, N_grad]
         self.jac_mat = CSRToInt32(self.jac_mat)
+        self.jac_mat = block_repeat_csr(self.jac_mat, N_comp)
 
         del self.fd_spms
         del self.jac_spms
 
     def derivative(self, Us) -> torch.Tensor:
-        neumann_resid = torch.mv(self.deriv_mat, Us)
+        """ Us.shape = [N_us_tot, N_components]
+            return.shape = [N_neumann, N_components]
+        """
+        neumann_resid = torch.mm(self.deriv_mat, Us)
         return neumann_resid
 
     def jacobian(self) -> torch.Tensor:

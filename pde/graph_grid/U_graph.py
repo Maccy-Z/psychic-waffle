@@ -61,13 +61,6 @@ class UGraph(UBase):
 
         setup_dict = {i: point for i, point in enumerate(sorted_points)}
 
-        # 1.1) Compute jacobian permutation
-        jacob_dict = {i:point for i, point in enumerate(v for v in setup_dict.values() if T.GRAD in v.point_type)}
-        jacob_main_pos = {i:point for i, point in jacob_dict.items() if (T.NeumOffsetBC not in point.point_type and T.GRAD in point.point_type)}
-        jacob_neum_pos = {i:point for i, point in jacob_dict.items() if T.NeumOffsetBC in point.point_type}
-        row_perm = torch.tensor(list(jacob_main_pos.keys()) + list(jacob_neum_pos.keys()))
-        self.row_perm = row_perm
-
         # 2) Compute finite difference stencils / graphs.
         # Each gradient type has its own stencil and graph.
         diff_degrees = gen_multi_idx_tuple(max_degree)[1:] # 0th order is just itself.
@@ -80,7 +73,6 @@ class UGraph(UBase):
 
         self.Xs = torch.stack([point.X for point in setup_dict.values()])
         self.us = torch.tensor([point.value for point in setup_dict.values()])
-        #self.us = torch.tensor([point.value for point in setup_dict.values()])
         # PDE is enforced on normal points.
         self.pde_mask = torch.tensor([T.PDE in P.point_type for P in setup_dict.values()])
         # U requires gradient for normal or ghost points.
@@ -105,13 +97,25 @@ class UGraph(UBase):
 
         self.neumann_mode = len(deriv_val) > 0
         if self.neumann_mode:
-            self.deriv_val = torch.tensor(deriv_val)
+            # 3.1) Compute jacobian permutation
+            jacob_dict = {i: point for i, point in enumerate(v for v in setup_dict.values() if T.GRAD in v.point_type)}
+            jacob_main_pos = {i: point for i, point in jacob_dict.items() if (T.NeumOffsetBC not in point.point_type and T.GRAD in point.point_type)}
+            jacob_neum_pos = {i: point for i, point in jacob_dict.items() if T.NeumOffsetBC in point.point_type}
+            # 3.2) Repeat for each component. Ordering:  [p0_0, p1_0, ..., p0_1, p1_1, ..., ..., b0_0, b0_1, ..., b0_1, b_1_1, ...]
+            pde_perm, bc_perm = torch.tensor(list(jacob_main_pos.keys())), torch.tensor( list(jacob_neum_pos.keys()))
+            pde_perm = torch.cat([pde_perm + i * self.N_us_grad for i in range(self.N_component)])
+            bc_perm = torch.cat([bc_perm + i * self.N_us_grad for i in range(self.N_component)])
+            self.row_perm = torch.cat([pde_perm, bc_perm])
+
+            self.deriv_val = torch.tensor(deriv_val).unsqueeze(-1).repeat(1, self.N_component)
+            self.deriv_val[:, 0] = 0.5
+            # print(f'{self.deriv_val  = }')
             self.deriv_orders_bc = deriv_orders
             self.neumann_mask = torch.tensor(neum_mask)
 
             self._cuda_bc()
             self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask, self.grad_mask, self.deriv_orders_bc, self.N_us_tot, N_component, device=self.device)
-            exit("Not using neurman mode")
+            # exit("Not using neurman mode")
 
 
     # def _adj_mat(self):

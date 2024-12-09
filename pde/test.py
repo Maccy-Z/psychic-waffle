@@ -1,7 +1,3 @@
-import torch
+a = [0x_for x in [1, 2, 3]]
 
-x = torch.arange(10)
-
-print(x)
-print(x.view(5, 2))
-print(x.flatten())
+print(a)
