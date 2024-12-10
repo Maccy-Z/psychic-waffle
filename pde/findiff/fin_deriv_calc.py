@@ -1,9 +1,9 @@
 import torch
 # from torch_geometric.nn import MessagePassing
 
-from pde.graph_grid.graph_store import DerivGraph
+from pde.graph_grid.graph_store import DerivGraph, Deriv
 from pde.BaseDerivCalc import BaseDerivCalc
-from pde.utils_sparse import coo_row_select, coo_col_select, CSRToInt32, block_repeat_csr
+from pde.utils_sparse import coo_row_select, coo_col_select, CSRToInt32, block_repeat_csr, plot_sparsity
 
 
 # class FinDerivCalc(MessagePassing, BaseDerivCalc):
@@ -55,7 +55,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
             Compute d = A * u [eq_mask]. Compile eq_mask into A.
             Jacobian is A[eq_mask][us_mask]
 
-            eq_mask: Constraint functions (PDEs / BCs)
+            eq_mask: Points where constraint functions needed (PDEs / BCs)
             grad_mask: u points that need to be updated
             N_us_tot: Total number of u points on graph.
             N_components: Number of components in u.
@@ -112,40 +112,50 @@ class NeumanBCCalc(FinDerivCalcSPMV):
     """ Compute FinDiff derivatives for (linear) Neumann BCs, and full jacobian for R = sum_n grad_n(u) - constant.
         Precompute the selection derivatives and jacobian, that directly returns residuals / residual jacobian without going through autograd / sparse matmuls
     """
-    def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, deriv_orders: dict[int, list], N_us_tot, N_comp, device="cpu"):
+    def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, deriv_orders: dict[int, Deriv],
+                 N_us_tot, N_comp, device="cpu"):
         """
-            deriv_orders: dict[point_idx, list[deriv_position]]. Derivative order for each derivative BC
+            deriv_orders: Derivative order for each derivative BC
         """
         # Construct all required derivatives and jacobian.
         super().__init__(fd_graphs, eq_mask, grad_mask, N_us_tot, N_comp, device=device)
+        N_bc_eqs = sum(eq_mask)
+
+        # self.fd_spms[(1, 0)].shape = [N_bc_eqs, N_us_tot]
+        # Reshape to blocks, which allows for mixing up the derivatives.
+        self.fd_spms = {order: block_repeat_csr(spm, N_comp) for order, spm in self.fd_spms.items()}    # shape = [N_derivs][N_bc_eqs*N_comp, N_us_tot*N_comp]
 
         # Build up full derivative matrix, combining all derivatives. [sum_n(deriv_n)] u - N = 0
-        deriv_mat = []
+        deriv_mat = []          # shape = [N_bc_points*N_comp, N_us_tot*N_comp]. Ordered in component major (points grouped).
         for eq_idx, derivs in enumerate(deriv_orders.values()):
-            deriv_row = []
-            for deriv in derivs:
-                deriv_row.append(self.fd_spms[deriv][eq_idx])
+            # For each boundary condition:
+            for deriv_bc in derivs:
+                deriv_row = []
+                # For each component of boundary condition:
+                for component, order in zip(deriv_bc.comp, deriv_bc.orders):
+                    us_idx = eq_idx + component * N_bc_eqs
+                    deriv_row.append(self.fd_spms[order][us_idx])
 
-            deriv_row = torch.stack(deriv_row, dim=0)
-            deriv_row_sum = torch.sparse.sum(deriv_row, dim=0)
-            deriv_mat.append(deriv_row_sum)
+                deriv_row = torch.stack(deriv_row, dim=0)
+                deriv_row_sum = torch.sparse.sum(deriv_row, dim=0)
+                deriv_mat.append(deriv_row_sum)
 
         deriv_mat = torch.stack(deriv_mat, dim=0).coalesce()
         self.deriv_mat = CSRToInt32(deriv_mat.to_sparse_csr())
-
-        self.jac_mat = coo_col_select(deriv_mat, self.grad_mask).to_sparse_csr()   # shape = [N_eqs, N_grad]
+        self.jac_mat = coo_col_select(deriv_mat, self.grad_mask.repeat(N_comp)).to_sparse_csr()   # shape = [N_bc_eqs_, N_grad_]
         self.jac_mat = CSRToInt32(self.jac_mat)
-        self.jac_mat = block_repeat_csr(self.jac_mat, N_comp)
+
 
         del self.fd_spms
         del self.jac_spms
 
     def derivative(self, Us) -> torch.Tensor:
         """ Us.shape = [N_us_tot, N_components]
-            return.shape = [N_neumann, N_components]
+            return.shape = [N_neumann*N_components]
         """
-        neumann_resid = torch.mm(self.deriv_mat, Us)
-        return neumann_resid
+        Us = Us.T.flatten()
+        bc_grads = torch.mv(self.deriv_mat, Us)
+        return bc_grads
 
     def jacobian(self) -> torch.Tensor:
         return self.jac_mat

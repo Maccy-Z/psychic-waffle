@@ -66,3 +66,5 @@ def setup_logging(debug=True):
         log_level = logging.WARNING
     logging.basicConfig(level=log_level, stream=sys.stdout, format='\033[31m%(levelname)s: \033[33m%(message)s \033[0m')
     logging.info('Logging setup complete')
+
+    torch.set_printoptions(precision=3, sci_mode=False)

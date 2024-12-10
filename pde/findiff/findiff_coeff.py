@@ -280,7 +280,7 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
     weights = np.concatenate(weights)
     edge_idxs, weights = torch.from_numpy(edge_idxs), torch.from_numpy(weights)
 
-    return edge_idxs, weights, None
+    return edge_idxs, weights
 
 
 def main():

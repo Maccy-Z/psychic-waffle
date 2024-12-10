@@ -4,7 +4,7 @@ from cprint import c_print
 from codetiming import Timer
 
 from pde.BaseU import UBase
-from pde.graph_grid.graph_store import DerivGraph, Point
+from pde.graph_grid.graph_store import DerivGraph, Point, Deriv
 from pde.graph_grid.graph_store import P_Types as T
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
@@ -13,7 +13,7 @@ class UGraph(UBase):
     """ Holder for graph structure. """
     Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
     us: Tensor   # [N_us_tot, N_component]                   # Value at node
-    deriv_val: Tensor # [N_deriv_BC]            # Derivative values at nodes for BC
+    deriv_val: Tensor # [N_deriv_BC*N_component]            # Derivative values at nodes for BC
 
     pde_mask: Tensor  # [N_us_tot]                   # Mask for where to enforce PDE on. Bool
     grad_mask: Tensor  # [N_us_tot]                   # Mask for nodes that need to be updated. Bool
@@ -32,7 +32,7 @@ class UGraph(UBase):
         # neighbors: list[Tensor]     # [N_us_tot, N_neigh]           # Neighborhood for each node
 
     deriv_calc: FinDerivCalcSPMV
-    deriv_orders_bc: dict[int, list]  # [N_deriv_BC, 2]     # Derivative order for each derivative BC
+    deriv_orders_bc: dict[int, Deriv]  # [N_deriv_BC, 2]     # Derivative order for each derivative BC
 
     row_perm: Tensor # [N_us_grad] # Permutation for Jacobian matrix
 
@@ -68,8 +68,8 @@ class UGraph(UBase):
         for degree in diff_degrees:
             c_print(f"Generating graph for degree {degree}", color="black")
             with Timer(text="Time to solve: : {:.4f}"):
-                edge_idx, fd_weights, neighbors = calc_coeff(setup_dict, grad_acc, degree)
-                self.graphs[degree] = DerivGraph(edge_idx, fd_weights, neighbors)
+                edge_idx, fd_weights = calc_coeff(setup_dict, grad_acc, degree)
+                self.graphs[degree] = DerivGraph(edge_idx, fd_weights)
 
         self.Xs = torch.stack([point.X for point in setup_dict.values()])
         self.us = torch.tensor([point.value for point in setup_dict.values()])
@@ -88,9 +88,10 @@ class UGraph(UBase):
         deriv_orders, deriv_val, neum_mask = {}, [], []
         for point_num, point in setup_dict.items():
             if T.DERIV in point.point_type:
-                orders, val = point.derivatives
-                deriv_orders[point_num] = orders
-                deriv_val.append(val)
+                derivs = point.derivatives
+
+                deriv_orders[point_num] = derivs
+                deriv_val.append([d.value for d in derivs])
                 neum_mask.append(True)
             else:
                 neum_mask.append(False)
@@ -101,15 +102,14 @@ class UGraph(UBase):
             jacob_dict = {i: point for i, point in enumerate(v for v in setup_dict.values() if T.GRAD in v.point_type)}
             jacob_main_pos = {i: point for i, point in jacob_dict.items() if (T.NeumOffsetBC not in point.point_type and T.GRAD in point.point_type)}
             jacob_neum_pos = {i: point for i, point in jacob_dict.items() if T.NeumOffsetBC in point.point_type}
-            # 3.2) Repeat for each component. Ordering:  [p0_0, p1_0, ..., p0_1, p1_1, ..., ..., b0_0, b0_1, ..., b0_1, b_1_1, ...]
+            # 3.2) Repeat for each component. Ordering:  [p0_0, p1_0, ..., p0_1, p1_1, ..., ..., b0_0, b0_1, ..., b1_0, b_1_1, ...]
             pde_perm, bc_perm = torch.tensor(list(jacob_main_pos.keys())), torch.tensor( list(jacob_neum_pos.keys()))
             pde_perm = torch.cat([pde_perm + i * self.N_us_grad for i in range(self.N_component)])
-            bc_perm = torch.cat([bc_perm + i * self.N_us_grad for i in range(self.N_component)])
+            bc_perm = torch.stack([bc_perm + i * self.N_us_grad for i in range(self.N_component)], dim=-1).flatten(0)
             self.row_perm = torch.cat([pde_perm, bc_perm])
 
-            self.deriv_val = torch.tensor(deriv_val).unsqueeze(-1).repeat(1, self.N_component)
-            self.deriv_val[:, 0] = 0.5
-            # print(f'{self.deriv_val  = }')
+            deriv_val = torch.tensor(deriv_val)
+            self.deriv_val = deriv_val.flatten()
             self.deriv_orders_bc = deriv_orders
             self.neumann_mask = torch.tensor(neum_mask)
 

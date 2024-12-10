@@ -1,6 +1,7 @@
 import torch
 from dataclasses import dataclass
 from enum import Flag, auto
+from collections import namedtuple
 
 
 class P_Types(Flag):
@@ -26,16 +27,27 @@ class P_Types(Flag):
     # Normal point
     Normal = PDE | GRAD # Standard PDE enforced on point.
 
+@dataclass
+class Deriv:
+    """ Stores all derivative boundary conditions on a point.
+        sum{ d^n u_k / dx_i dx_j } = value
+    """
+    comp: list[int]
+    orders: list[tuple[int, int]]
+    value: float
+
+    def __post_init__(self):
+        assert len(self.comp) == len(self.orders), "Number of components must equal number of derivative orders."
 
 @dataclass
 class Point:
+    """ value:  If NORMAL, value = initial value.
+                If BOUNDARY, value = boundary value.
+        derivatives: Sum of derivatives = value. """
     point_type: P_Types
     X: torch.Tensor
     value: float|list[float] = None
-    derivatives: tuple[list[tuple], float] = None
-    """ value:  If NORMAL, value = initial value. 
-                If BOUNDARY, value = boundary value. 
-        derivatives: Sum of derivatives = value. derivatives = ([(dx1, dy1), (dx2, dy2)], value).  """
+    derivatives: list[Deriv] = None
 
     def __post_init__(self):
         if P_Types.DERIV in self.point_type:
@@ -51,7 +63,6 @@ class Point:
 class DerivGraph:
     edge_idx: torch.Tensor
     weights: torch.Tensor
-    neighbors: dict[int, torch.Tensor]
 
     device: str = "cpu"
     def cuda(self):

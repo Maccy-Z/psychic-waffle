@@ -1,9 +1,6 @@
 import torch
 import torch.func as func
-import cupy as cp
-from mpmath import jacobi
 
-from old.max.utils import c_print
 from pde.config import JacMode
 from pde.BaseU import UBase
 from pde.cartesian_grid.U_grid import USplitGrid, UNormalGrid
@@ -138,19 +135,18 @@ class GraphJacobCalc(JacobCalc):
             bc_deriv_true = self.u_graph.deriv_val
             bc_residuals = bc_deriv_pred - bc_deriv_true
 
-
-            bc_residuals = bc_residuals.T.flatten()  # shape = [N_bc_derivs_]
             # residuals = [p0_0, p1_0, ..., p0_1, p1_1, ..., b0_0, b0_1, ..., b0_1, b_1_1, ...]
             residuals = torch.cat([residuals, bc_residuals])        # shape = [N_pde_+N_bc_]
 
 
             # 5.2_ Neumann jacobian: dR/dD = 1, so select corresponding rows of jacobian.
             bc_deriv_jac = self.deriv_calc_bc.jac_mat       # shape = [N_bc_derivs_, N_u_grad_]
+
             jacobian = self.concatenator.cat(jacobian, bc_deriv_jac)  # shape = [N_pde_+N_bc_, N_total_]
             # print(f'{jacobian.shape = }')
             # 6)  Neuman Jacobian is concatenated onto the end of the main Jacobian. Permute it back to correct order
-            # jacobian = self.permuter.matrix_permute(jacobian)
-            # residuals = self.permuter.vector_permute(residuals)
+            jacobian = self.permuter.matrix_permute(jacobian)
+            residuals = self.permuter.vector_permute(residuals)
             # exit(9)
 
         # torch.save(jacobian, "jacobian.pth")

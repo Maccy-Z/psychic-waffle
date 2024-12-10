@@ -1,6 +1,6 @@
 import torch
 
-from pde.graph_grid.graph_store import Point, P_Types
+from pde.graph_grid.graph_store import Point, P_Types, Deriv
 from pde.graph_grid.U_graph import UGraph
 from pde.graph_grid.graph_utils import test_grid, gen_perim, plot_interp_graph
 from pde.config import Config
@@ -37,6 +37,8 @@ def new_graph(cfg):
     n_grid = 20
     spacing = 1/(n_grid + 1)
 
+    deriv = [Deriv(comp=[0], orders=[(1, 0)], value=1.), Deriv(comp=[1], orders=[(1, 0)], value=0.)]
+
     Xs_perim = gen_perim(1, 1, spacing)
     perim_mask = (Xs_perim[:, 1] > 0) & (Xs_perim[:, 1] < 1) & (Xs_perim[:, 0] ==0)
     Xs_neumann = Xs_perim[perim_mask]
@@ -48,7 +50,6 @@ def new_graph(cfg):
     Xs_bulk = test_grid(spacing, (1- spacing), torch.tensor([n_grid, n_grid]), device="cpu")
 
     Xs_fix = [Point(P_Types.DirichBC, X, value=[0. for _ in range(N_comp)]) for X in Xs_dirich]
-    deriv = ([(1, 0)], 0.)
     Xs_deriv = [Point(P_Types.NeumCentralBC , X, value=[0. for _ in range(N_comp)], derivatives=deriv) for X in Xs_neumann]
     Xs_ghost = [Point(P_Types.Ghost, X, value=[0. for _ in range(N_comp)]) for X in Xs_ghost]
     Xs_bulk = [Point(P_Types.Normal, X, value= [0. for _ in range(N_comp)]) for X in Xs_bulk]
@@ -78,6 +79,7 @@ def true_pde():
     us, Xs = u_graph.us, u_graph.Xs
 
 
+    plot_interp_graph(Xs, us[:, 0])
     plot_interp_graph(Xs, us[:, 1])
 
 # def main():
