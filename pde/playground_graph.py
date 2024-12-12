@@ -8,22 +8,27 @@ from pde.NeuralPDE_Graph import NeuralPDEGraph
 from pdes.PDEs import Poisson, LearnedFunc
 from pde.utils import setup_logging
 from pde.loss import DummyLoss
-from pde.mesh_generation.generate_mesh import gen_points_full
+#from pde.mesh_generation.generate_mesh import gen_points_full
+from pde.mesh_generation.subproc_gen_mesh import run_subprocess
 
 def mesh_graph(cfg):
     cfg = Config()
+    N_comp = 2
 
-    _, points, p_tags = gen_points_full()
+    deriv = [Deriv(comp=[0], orders=[(1, 0)], value=0.), Deriv(comp=[1], orders=[(1, 0)], value=1.)]
+    value = [0. for _ in range(N_comp)]
+    #points, p_tags = gen_points_full()
+    points, p_tags = run_subprocess()
 
     points = torch.from_numpy(points).float()
     Xs_all = {}
     for i, (point, tag) in enumerate(zip(points, p_tags)):
         if P_Types.DERIV in tag:
-            Xs_all[i] = Point(tag, point, value=0., derivatives=([(1, 0)], 0.))
+            Xs_all[i] = Point(tag, point, value=value, derivatives=deriv)
         else:
-            Xs_all[i] = Point(tag, point, value=0.)
+            Xs_all[i] = Point(tag, point, value=value)
 
-    u_graph = UGraph(Xs_all, N_component=1, grad_acc=4, device=cfg.DEVICE)
+    u_graph = UGraph(Xs_all, N_component=2, grad_acc=4, device=cfg.DEVICE)
 
     with open("save_u_graph.pth", "wb") as f:
         torch.save(u_graph, f)
@@ -69,9 +74,9 @@ def load_graph(cfg):
 
 def true_pde():
     cfg = Config()
-    #u_graph = load_graph(cfg)
+    u_graph = load_graph(cfg)
     #u_graph = mesh_graph(cfg)
-    u_graph = new_graph(cfg)
+    #u_graph = new_graph(cfg)
     pde_fn = Poisson(cfg, device=cfg.DEVICE)
     pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())
 
