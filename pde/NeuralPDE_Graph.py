@@ -2,11 +2,11 @@ import torch
 
 from pde.graph_grid.U_graph import UGraph
 from pde.solvers.jacobian import get_jac_calc
-from pdes.PDEs import PDEFunc
+from pde.pdes.PDEs import PDEFunc
 from pde.graph_grid.PDE_Grad import PDEForward, PDEAdjoint
-from solvers.linear_solvers import LinearSolver
-from solvers.solver_newton import SolverNewton
-from config import Config
+from pde.solvers.linear_solvers import LinearSolver
+from pde.solvers.solver_newton import SolverNewton
+from pde.config import Config
 from pde.loss import Loss
 
 class NeuralPDEGraph:
@@ -61,7 +61,3 @@ class NeuralPDEGraph:
         self.adjoint = None
 
         return residuals
-
-    def get_us_Xs(self):
-        us, Xs = self.us_grid.get_real_us_Xs()
-        return us, Xs

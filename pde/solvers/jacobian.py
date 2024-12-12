@@ -56,6 +56,7 @@ class JacobCalc:
     def residauls(self):
         raise NotImplementedError
 
+
 class GraphJacobCalc(JacobCalc):
     """ Use pde_func's inbuilt method to calculate jacobian"""
     def __init__(self, u_graph: UGraph, pde_fwd:PDEForwardGraph):

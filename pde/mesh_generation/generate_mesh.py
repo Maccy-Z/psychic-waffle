@@ -74,9 +74,9 @@ def create_mesh(coords: list[MeshFacet], mesh_props: MeshProps):
 
 
 def gen_points_full():
-    min_area = 2e-3
-    max_area = 3e-3
-    xmin, xmax = 0, 4
+    min_area = 7e-3
+    max_area = 10e-3
+    xmin, xmax = 0, 3
     ymin, ymax = 0.0, 1.5
     circle_center = (0.5, 0.4)
     circle_radius = 0.1
@@ -104,12 +104,9 @@ def gen_points_full():
 
     p_tags = [marker_tags[int(i)] for i in p_markers]
 
-    # c_print(f'Number of points: {points.shape[0]}', "green")
-    # c_print("Plotting mesh", 'green')
-    #plot_mesh(mesh)
-    #print(p_tags, file=sys.stderr)
+    # plot_mesh(mesh)
 
-    return  points, p_tags
+    return points, p_tags
 
 
 def main():

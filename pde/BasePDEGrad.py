@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from BaseU import UBase
+from pde.BaseU import UBase
 import torch
 
 class PDEFwdBase(ABC):
