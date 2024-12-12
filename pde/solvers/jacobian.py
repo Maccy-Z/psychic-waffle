@@ -84,8 +84,6 @@ class GraphJacobCalc(JacobCalc):
 
             self.permuter = CSRPermuter(u_graph.row_perm, dummy_jac_full)
 
-
-
     @torch.no_grad()
     def jacobian(self):
         """
@@ -112,7 +110,6 @@ class GraphJacobCalc(JacobCalc):
         dDdU = self.deriv_calc.jacobian() # shape = [N_derivs][N_pde_, N_total_]
 
         # 3) dR/dD. shape = [N_pde*N_comp, N_derivs*N_comp] = [N_pde_, N_derivs_]
-        #dRdD, residuals = func.vmap(self.resid_grad_val)(u_dus, Xs)
         dRdD = torch.func.vmap(torch.func.jacrev(self.pde_fwd.residuals, argnums=0))(u_dus, Xs) # [N_pde, N_component, N_deriv, N_component]
         residuals = func.vmap(self.pde_fwd.residuals)(u_dus, Xs)        # [N_pde, N_component]
 
@@ -138,20 +135,14 @@ class GraphJacobCalc(JacobCalc):
             # residuals = [p0_0, p1_0, ..., p0_1, p1_1, ..., b0_0, b0_1, ..., b0_1, b_1_1, ...]
             residuals = torch.cat([residuals, bc_residuals])        # shape = [N_pde_+N_bc_]
 
-
             # 5.2_ Neumann jacobian: dR/dD = 1, so select corresponding rows of jacobian.
             bc_deriv_jac = self.deriv_calc_bc.jac_mat       # shape = [N_bc_derivs_, N_u_grad_]
 
             jacobian = self.concatenator.cat(jacobian, bc_deriv_jac)  # shape = [N_pde_+N_bc_, N_total_]
-            # print(f'{jacobian.shape = }')
             # 6)  Neuman Jacobian is concatenated onto the end of the main Jacobian. Permute it back to correct order
             jacobian = self.permuter.matrix_permute(jacobian)
             residuals = self.permuter.vector_permute(residuals)
-            # exit(9)
 
-        # torch.save(jacobian, "jacobian.pth")
-        # torch.save(residuals, "residuals.pth")
-        # from pde.utils_sparse import plot_sparsity
 
         return jacobian, residuals
 
