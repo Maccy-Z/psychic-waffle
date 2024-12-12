@@ -1,7 +1,6 @@
 import torch
 from dataclasses import dataclass
 from enum import Flag, auto
-from collections import namedtuple
 
 
 class P_Types(Flag):

@@ -8,11 +8,11 @@ class MeshFacet:
     seg_type: str
     hole: bool | np.ndarray  # False if its to be filled, otherwise any point inside object
     dist_req: bool  # If segment needs mesh refinement around
-    name: str
+    name: any # Tag to be carried through to the mesh
 
 
 class Circle(MeshFacet):
-    def __init__(self, center, radius, lengthscale, hole: bool = False, dist_req: bool = True, name: str = None):
+    def __init__(self, center, radius, lengthscale, hole: bool = False, dist_req: bool = True, name = None):
         """
         Generate points and segments for a circle boundary.
         :param center: Tuple (x, y) for the circle center.
@@ -42,7 +42,7 @@ class Circle(MeshFacet):
 
 class Ellipse(MeshFacet):
     def __init__(self, center, semi_major_axis, eccentricity, rotation_angle, lengthscale,
-                 hole: bool = False, dist_req: bool = True, name: str = None):
+                 hole: bool = False, dist_req: bool = True, name = None):
         """
         Generate points and segments for an ellipse boundary using eccentricity and rotation angle.
         :param center: Tuple (x, y) for the ellipse center.
@@ -93,7 +93,7 @@ class Ellipse(MeshFacet):
 
 
 class Box(MeshFacet):
-    def __init__(self, Xmin, Xmax, remove_edge: int = None, hole: bool = False, dist_req: bool = False, name: str = None):
+    def __init__(self, Xmin, Xmax, remove_edge: int = None, hole: bool = False, dist_req: bool = False, name = None):
         """ Remove edge: 0: Left
                          1: Top
                          2: Right
@@ -127,7 +127,7 @@ class Box(MeshFacet):
 
 
 class Line(MeshFacet):
-    def __init__(self, start, end, dist_req: bool = False, name: str = None):
+    def __init__(self, start, end, dist_req: bool = False, name = None):
         self.name = name
         self.hole = False
         self.dist_req = dist_req

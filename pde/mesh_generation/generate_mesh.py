@@ -1,13 +1,14 @@
 import numpy as np
+import sys
+import pickle
 from cprint import c_print
+import json
 from pde.mesh_generation.mesh_gen_utils import (MeshProps, min_dist_to_boundary,
                             plot_mesh, extract_mesh_data)
 from pde.mesh_generation.geometries import MeshFacet, Circle, Box, Line, Ellipse
 from pde.graph_grid.graph_store import P_Types as PT
 import meshpy.triangle as tri
 
-
-import traceback
 
 # Custom function to control mesh refinement
 def refine_fn(vertices, area, props: MeshProps, points, segments):
@@ -26,7 +27,7 @@ def refine_fn(vertices, area, props: MeshProps, points, segments):
 
     except Exception as e:
         c_print(f"Exception raised: {e}", color="bright_red")
-        traceback.print_exc()
+        print(e)
         raise e
     return area > threshold
 
@@ -88,7 +89,7 @@ def gen_points_full():
     coords = [#Box(Xmin, Xmax, hole=False, name="farfield", remove_edge=2),
               Line([xmin, ymin], [xmax, ymin], True, name=PT.DirichBC),
               Line([xmin, ymax], [xmax, ymax], True, name=PT.DirichBC),
-              Line([xmin, ymin], [xmin, ymax], True, name=PT.DirichBC),
+              Line([xmin, ymin], [xmin, ymax], True, name=PT.NeumOffsetBC),
               Line([xmax, ymax], [xmax, ymin], True, name=PT.DirichBC),
               Circle(circle_center, circle_radius, lengthscale, True, name=PT.DirichBC),
               Circle((1.0, 0.5), circle_radius, lengthscale, True, name=PT.DirichBC),
@@ -100,24 +101,27 @@ def gen_points_full():
     point_props, markers, _ = extract_mesh_data(mesh)
     points, _ = point_props
     p_markers, _ = markers
-    #_, bound_edges = edges
 
     p_tags = [marker_tags[int(i)] for i in p_markers]
 
-    c_print(f'Number of points: {points.shape[0]}', "green")
+    # c_print(f'Number of points: {points.shape[0]}', "green")
     # c_print("Plotting mesh", 'green')
-    # plot_mesh(mesh)
+    #plot_mesh(mesh)
+    #print(p_tags, file=sys.stderr)
 
-    return mesh, points, p_tags
+    return  points, p_tags
+
 
 def main():
-    mesh, points, p_tags = gen_points_full()
-
-    #save_su2(mesh, marker_names)
-    print(f'Number of points: {points.shape[0]}')
-
-
+    #exit(4)
+    try:
+        points, p_tags = gen_points_full()
+        #points, p_tags = PT.FIX, PT.DERIV
+        pickle.dump((points, p_tags), sys.stdout.buffer)
+    except Exception as e:
+        print(json.dumps(e), file=sys.stderr)
 
 
 if __name__ == "__main__":
+    #from pde.graph_grid.graph_store import P_Types as PT
     main()
