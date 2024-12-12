@@ -4,7 +4,7 @@ from dataclasses import dataclass
 class ConfigTime:
     time_domain: tuple[int] = (0, 0.1)
     timesteps: int = 5
-    substeps: int = 50
+    substeps: int = 250
 
     dt: float = None
 

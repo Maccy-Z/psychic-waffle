@@ -83,7 +83,7 @@ class TimePDEFunc:
     def solve(self, u_dus, Xs, t):
         """ u_dus: dict[degree, torch.Tensor]. shape = [N_deriv][N_us_grad, N_comp] """
         laplacian = u_dus[(2, 0)] + u_dus[(0, 2)]
-        return - laplacian
+        return laplacian
 
 
 class TimePDEBase:
@@ -133,7 +133,7 @@ class TimePDEBase:
         grads_dict = u_tmp.deriv_calc.derivative(us_all)
 
         update = self.cfg_T.dt * self.PDE_timefn.solve(grads_dict, Xs, t)
-        self.u_graph_main.update_grid(update)
+        self.u_graph_main.update_grid(-update)
 
 
     def update_boundary(self):
