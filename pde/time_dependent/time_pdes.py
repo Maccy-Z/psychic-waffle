@@ -2,7 +2,7 @@ import torch
 from cprint import c_print
 from pde.graph_grid.graph_store import Point, P_Types, Deriv
 from pde.config import Config
-from pde.time_dependent.U_time_graph import UGraphTime, UGraphStep
+from pde.time_dependent.U_time_graph import UGraphTime, UTemp
 from pde.mesh_generation.subproc_gen_mesh import run_subprocess
 from pde.time_dependent.time_cfg import ConfigTime
 from pde.NeuralPDE_Graph import NeuralPDEGraph
@@ -38,7 +38,7 @@ def mesh_graph(cfg):
 
 def new_graph(cfg):
     cfg = Config()
-    N_comp = 1
+    N_comp = 3
 
     n_grid = 20
     spacing = 1/(n_grid + 1)
@@ -71,18 +71,56 @@ def new_graph(cfg):
     return u_graph
 
 def load_graph(cfg):
-    u_graph = torch.load("save_u_graph.pth")
+    u_graph = torch.load("save_u_graph.pth", weights_only=False)
     return u_graph
 
 
 class TimePDEFunc:
-    def __init__(self, cfg: Config):
+    def __init__(self, u_star: UTemp, cfg: Config, cfg_T: ConfigTime):
+        self.cfg = cfg
+        self.cfg_T = cfg_T
         self.device = cfg.DEVICE
         self.dtype = torch.float32
 
+        self.u_star = u_star
+
+        self.mu = 1
+        self.rho = 1
+
     def solve(self, u_dus, Xs, t):
         """ u_dus: dict[degree, torch.Tensor]. shape = [N_deriv][N_us_grad, N_comp] """
-        laplacian = u_dus[(2, 0)] + u_dus[(0, 2)]
+        us = u_dus[(0, 0)]
+        dudxs = torch.stack([u_dus[(1, 0)], u_dus[(0, 1)]], dim=1)      # shape = [N_us_grad, 2, 3]
+        d2udx2s = torch.stack([u_dus[(2, 0)], u_dus[(0, 2)]], dim=1)
+        # First two components are velocity vector.
+        vs = us[..., :-1]
+        dvdxs = dudxs[..., :-1]
+        d2vdx2s = d2udx2s[..., :-1]
+        # Last component is pressure
+        ps = us[..., -1:]
+        dpdxs = dudxs[..., -1]
+        #d2pdx2s = d2udx2s[..., -1:]
+
+        # Viscosity = 1/mu laplacian(v)
+        viscosity = 1 / self.mu * d2udx2s.sum(dim=-1)     # shape = [N_us_grad, 2]
+
+        # Convective = -(v . grad)v
+        vs_expand = vs.unsqueeze(-1)        # shape = [N_us_grad, 2, 1]
+        product = vs_expand * dvdxs         # shape = [N_us_grad, 2, 2]
+        convective = - product.sum(dim=-1)    # shape = [N_us_grad, 2]
+
+        # Pressure = -1/rho grad(p)
+        pressure = -1 / self.rho * dpdxs
+
+        print(f'{viscosity.shape = }, {convective.shape = }, {pressure.shape = }')
+        dv = viscosity + convective + pressure
+
+        v_new = vs + self.cfg_T.dt * dv
+        print(f'{v_new.shape = }, {ps.shape = }')
+        u_new = torch.cat([v_new, ps], dim=-1)
+
+
+        exit(9)
         return laplacian
 
 
@@ -101,7 +139,7 @@ class TimePDEBase:
     PDE_timefn: TimePDEFunc
 
     u_graph_main: UGraphTime
-    u_saves: dict[float, UGraphStep]
+    u_saves: dict[float, UTemp]
 
     def __init__(self, u_graph: UGraphTime, cfg_T: ConfigTime, cfg_in: Config):
         self.u_graph_main = u_graph
@@ -109,7 +147,7 @@ class TimePDEBase:
         self.cfg_in = cfg_in
         self.u_saves = {}
 
-        self.PDE_timefn = TimePDEFunc(cfg_in)
+        self.PDE_timefn = TimePDEFunc(u_graph.get_subgraph(), cfg_in, cfg_T)
 
         self.device = "cuda"
         self.dtype = torch.float32
@@ -121,13 +159,13 @@ class TimePDEBase:
 
         for step_num, t in enumerate(timesteps):
             if step_num % cfg_T.substeps == 0:
-                self.u_saves[t.item()] = self.u_graph_main.clone_graph()
+                self.u_saves[t.item()] = self.u_graph_main.get_subgraph()
 
-            u_tmp = self.u_graph_main.clone_graph()
+            u_tmp = self.u_graph_main.get_subgraph()
             self.update_step(u_tmp, t)
 
 
-    def update_step(self, u_tmp: UGraphStep, t):
+    def update_step(self, u_tmp: UTemp, t):
         us_all = u_tmp.us
         Xs = u_tmp.Xs[u_tmp.pde_mask]
         grads_dict = u_tmp.deriv_calc.derivative(us_all)
@@ -144,6 +182,7 @@ def main():
     cfg = Config()
     time_cfg= ConfigTime()
     c_print(f'{time_cfg.dt = }', color="bright_magenta")
+
     #u_graph = new_graph(cfg)
     u_graph = load_graph(cfg)
 

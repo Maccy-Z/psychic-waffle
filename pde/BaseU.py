@@ -41,7 +41,13 @@ class UBase(abc.ABC):
         """
         deltas = deltas.view(self.N_component, self.N_us_grad).T
         self.us[self.grad_mask] -= deltas
-        # self._fix_bc()        # TODO: Fix boundary conditions for graph
+
+    def set_grid(self, new_us):
+        """
+        Set grid to new values. Used for Jacobian computation.
+        """
+        self.us[self.grad_mask] = new_us
+
 
     def get_real_us_Xs(self):
         """ Return all actual grid points, excluding fake boundaries. """

@@ -9,7 +9,7 @@ from pde.graph_grid.graph_store import P_Types as T
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
 
-class UGraphStep(UBase):
+class UTemp(UBase):
     Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
     us: Tensor   # [N_us_tot, N_component]                   # Value at node
     deriv_calc: FinDerivCalcSPMV
@@ -131,8 +131,8 @@ class UGraphTime(UBase):
         #     self._cuda_bc()
         #     self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask, self.grad_mask, self.deriv_orders_bc, self.N_us_tot, N_component, device=self.device)
 
-    def clone_graph(self):
-        subraph_copy = UGraphStep(self.Xs.clone(), self.us.clone(), self.deriv_calc, self.pde_mask.clone())
+    def get_subgraph(self):
+        subraph_copy = UTemp(self.Xs.clone(), self.us.clone(), self.deriv_calc, self.pde_mask.clone())
         return subraph_copy
 
 
