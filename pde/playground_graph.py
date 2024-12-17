@@ -74,9 +74,9 @@ def load_graph(cfg):
 
 def true_pde():
     cfg = Config()
-    #u_graph = load_graph(cfg)
+    u_graph = load_graph(cfg)
     #u_graph = mesh_graph(cfg)
-    u_graph = new_graph(cfg)
+    #u_graph = new_graph(cfg)
     pde_fn = Poisson(cfg, device=cfg.DEVICE)
     pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())
 

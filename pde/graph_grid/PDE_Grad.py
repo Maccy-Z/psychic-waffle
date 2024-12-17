@@ -16,7 +16,7 @@ class PDEForward(PDEFwdBase):
 
     def residuals(self, u_dus: torch.Tensor, Xs: torch.Tensor, aux_input=None):
         residuals = self.pde_func(u_dus, Xs, aux_input)
-        return residuals
+        return residuals, residuals
 
 
 class PDEAdjoint:

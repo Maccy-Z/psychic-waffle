@@ -132,7 +132,7 @@ class TimePDEFunc:
         v_s_grad = self.v_star_graph.get_grads()
         div_v_s = v_s_grad[(1, 0)][..., 0] + v_s_grad[(0, 1)][..., 1]
 
-        div_v_s += 3
+        div_v_s += -5
         self.pde_solver.forward_solve(div_v_s)
         us, Xs = self.pde_solver.us_graph.get_all_us_Xs()
         print()

@@ -68,7 +68,7 @@ class GraphJacobCalc(JacobCalc):
 
         self.pde_fwd = pde_fwd
         self.deriv_calc = u_graph.deriv_calc
-        self.resid_grad_val = func.grad_and_value(self.pde_fwd.residuals, argnums=0)
+        self.resid_jac_val = torch.func.vmap(torch.func.jacrev(self.pde_fwd.residuals, has_aux=True, argnums=0))
 
         # Precompute transforms with jacobian structure
         deriv_jac_list = self.u_graph.deriv_calc.jacobian()
@@ -110,9 +110,8 @@ class GraphJacobCalc(JacobCalc):
         dDdU = self.deriv_calc.jacobian() # shape = [N_derivs][N_pde_, N_total_]
 
         # 3) dR/dD. shape = [N_pde*N_comp, N_derivs*N_comp] = [N_pde_, N_derivs_]
-        dRdD = torch.func.vmap(torch.func.jacrev(self.pde_fwd.residuals, argnums=0))(u_dus, Xs, pde_aux_input) # [N_pde, N_component, N_deriv, N_component]
-        residuals = func.vmap(self.pde_fwd.residuals)(u_dus, Xs, pde_aux_input)        # [N_pde, N_component]
-
+        dRdD, residuals = self.resid_jac_val(u_dus, Xs) if pde_aux_input is None else self.resid_jac_val(u_dus, Xs, pde_aux_input)# [N_pde, N_component, N_deriv, N_component]
+                                                                                                                    # residuals.shape = [N_pde, N_component]
         dRdD = dRdD.permute(1, 0, 3, 2).reshape(self.N_pdes*self.N_component, (self.N_deriv+1)*self.N_component)   # [N_pde_, N_deriv_]
         residuals = residuals.T.reshape(self.N_pdes*self.N_component)    # [N_pde_]
 
@@ -158,7 +157,10 @@ class GraphJacobCalc(JacobCalc):
         grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
         u_dus = torch.stack(list(grads_dict.values()), dim=-1).permute(0, 2, 1)    # shape = [N_pde, N_derivs, N_component]   # shape = [N_pde, N_derivs]
 
-        residuals = func.vmap(self.pde_fwd.residuals)(u_dus, Xs, aux_input)
+        if aux_input is None:
+            residuals, _ = func.vmap(self.pde_fwd.residuals)(u_dus, Xs)
+        else:
+            residuals, _ = func.vmap(self.pde_fwd.residuals)(u_dus, Xs, aux_input)
         return residuals
 
 
