@@ -2,9 +2,9 @@ from dataclasses import dataclass
 
 @dataclass()
 class ConfigTime:
-    time_domain: tuple[int] = (0, 0.1)
+    time_domain: tuple[int] = (0, 0.001)
     timesteps: int = 5
-    substeps: int = 250
+    substeps: int = 1
 
     dt: float = None
 

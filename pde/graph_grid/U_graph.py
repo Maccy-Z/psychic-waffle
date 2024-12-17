@@ -23,6 +23,10 @@ class UTemp(UBase):
     def reset(self):
         self.us = torch.zeros_like(self.us)
 
+    def get_grads(self):
+        grad_dict = self.deriv_calc.derivative(self._us)
+
+        return grad_dict
     def _cuda(self):
         pass
 

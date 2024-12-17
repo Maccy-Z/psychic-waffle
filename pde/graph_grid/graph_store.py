@@ -26,14 +26,21 @@ class P_Types(Flag):
     # Normal point
     Normal = PDE | GRAD # Standard PDE enforced on point.
 
+class P_TimeTypes(Flag):
+    """ Point types for time dependent problems. """
+    FIXED = auto()  # Fixed value point. No fitting required.
+    MANUAL = auto()  # Manually set value. No fitting required.
+
+    NORMAL = auto()  # Normal point. Fitting required.
+
 @dataclass
 class Deriv:
     """ Stores all derivative boundary conditions on a point.
         sum{ d^n u_k / dx_i dx_j } = value
     """
-    comp: list[int]
-    orders: list[tuple[int, int]]
-    value: float
+    comp: list[int]     # Which components of us to apply derivative to.
+    orders: list[tuple[int, int]]       # Derivative orders. (i, j) = d^i/dx_i d^j/dx_j
+    value: float            # Sum values
 
     def __post_init__(self):
         assert len(self.comp) == len(self.orders), "Number of components must equal number of derivative orders."

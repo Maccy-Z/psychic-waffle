@@ -186,7 +186,7 @@ def plot_interp_graph(points, values, resolution=1000, title='Nearest Neighbor I
     plt.scatter(points[:, 0], points[:, 1], marker='.', s=40)
 
     # Title and axis labels
-    plt.title(title)
+    plt.title(title, fontsize=30)
     plt.xlabel('X')
     plt.ylabel('Y')
 

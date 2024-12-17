@@ -2,6 +2,7 @@ import subprocess
 import pickle
 import sys
 import json
+from pde.mesh_generation.generate_mesh import main
 
 def run_subprocess():
 

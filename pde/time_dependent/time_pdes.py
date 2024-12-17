@@ -1,6 +1,6 @@
 import torch
 from cprint import c_print
-from sympy.integrals.heurisch import components
+from matplotlib import pyplot as plt
 
 from pde.graph_grid.graph_store import Point, P_Types, Deriv
 from pde.config import Config
@@ -13,7 +13,7 @@ from pde.graph_grid.graph_utils import plot_interp_graph, test_grid, gen_perim
 from pde.pdes.PDEs import PressureNS
 
 def mesh_graph(cfg):
-    N_comp = 1
+    N_comp = 3
 
     deriv = [Deriv(comp=[0], orders=[(1, 0)], value=0.)]#, Deriv(comp=[1], orders=[(1, 0)], value=1.)]
     value = [0. for _ in range(N_comp)]
@@ -58,7 +58,7 @@ def new_graph(cfg):
     Xs_ghost[:, 0] = Xs_ghost[:, 0] - spacing
     Xs_bulk = test_grid(spacing, (1- spacing), torch.tensor([n_grid, n_grid]), device="cpu")
 
-    Xs_fix = [Point(P_Types.DirichBC, X, value=[1. for _ in range(N_comp)]) for X in Xs_dirich]
+    Xs_fix = [Point(P_Types.DirichBC, X, value=[0 for _ in range(N_comp)]) for X in Xs_dirich]
     #Xs_deriv = [Point(P_Types.NeumCentralBC , X, value=[0. for _ in range(N_comp)], derivatives=deriv) for X in Xs_neumann]
     Xs_deriv = [Point(P_Types.DirichBC, X, value=[0. for _ in range(N_comp)]) for X in Xs_neumann]
     Xs_ghost = [] # [Point(P_Types.Ghost, X, value=[0. for _ in range(N_comp)]) for X in Xs_ghost]
@@ -91,16 +91,15 @@ class TimePDEFunc:
         pde_fn_inner = PressureNS(cfg, device=cfg.DEVICE)
         p_graph = UGraph.from_time_graph(u_graph_main, components=[2])
         pde_solver = NeuralPDEGraph(pde_fn_inner, p_graph, cfg)
-        self.pde_solver = pde_solver
+        self.P_solver = pde_solver
 
         self.mu = 1
         self.rho = 1
 
     def solve(self, u_dus, Xs, t):
         """ u_dus: dict[degree, torch.Tensor]. shape = [N_deriv][N_us_grad, N_comp]
-            Returns: Update to us at time t.
+            Returns: new values of velocity and pressure at variable nodes at time t.
         """
-
         us = u_dus[(0, 0)]
         dudxs = torch.stack([u_dus[(1, 0)], u_dus[(0, 1)]], dim=1)      # shape = [N_us_grad, 2, 3]
         d2udx2s = torch.stack([u_dus[(2, 0)], u_dus[(0, 2)]], dim=1)
@@ -115,32 +114,36 @@ class TimePDEFunc:
 
         # Viscosity = 1/mu laplacian(v)
         viscosity = 1 / self.mu * d2udx2s.sum(dim=-1)     # shape = [N_us_grad, 2]
-
         # Convective = -(v . grad)v
         vs_expand = vs.unsqueeze(-1)        # shape = [N_us_grad, 2, 1]
         product = vs_expand * dvdxs         # shape = [N_us_grad, 2, 2]
         convective = - product.sum(dim=-1)    # shape = [N_us_grad, 2]
-
         # Pressure = -1/rho grad(p)
         pressure = -1 / self.rho * dpdxs
-
-        # print(f'{viscosity.shape = }, {convective.shape = }, {pressure.shape = }')
+        # Uncorrected velocity update
         dv_star = viscosity + convective + pressure
-
         v_star = vs + self.cfg_T.dt * dv_star
         self.v_star_graph.set_grid(v_star)
-        v_s_grad = self.v_star_graph.get_grads()
-        div_v_s = v_s_grad[(1, 0)][..., 0] + v_s_grad[(0, 1)][..., 1]
 
-        div_v_s += -5
-        self.pde_solver.forward_solve(div_v_s)
-        us, Xs = self.pde_solver.us_graph.get_all_us_Xs()
-        print()
-        print(f'{us.shape = }, {Xs.shape = }')
-        plot_interp_graph(Xs, us[:, 0])
-        #plot_interp_graph(Xs, us[:, 2])
-        exit(9)
-        return laplacian
+        # Pressure correction: laplacian(dP) = rho/dt div(v_star)
+        v_star_grad = self.v_star_graph.get_grads()
+        div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
+        div_v_s = div_v_s * self.rho / self.cfg_T.dt
+        # Solve pressure equation
+        self.P_solver.us_graph.reset()
+        self.P_solver.forward_solve(div_v_s)
+        dP = self.P_solver.us_graph.get_us_grad()
+        dP_grads = self.P_solver.us_graph.get_grads()
+        grad_dP = torch.cat([dP_grads[(1, 0)], dP_grads[(0, 1)]], dim=1)
+
+        # Update pressure
+        P_new = ps + dP
+        # Update velocity: V^{n+1} = V_star - dt/rho grad(dP)
+        v_new = v_star - self.cfg_T.dt / self.rho * grad_dP
+        us_new = torch.cat([v_new, P_new], dim=1)
+
+
+        return us_new
 
 
 class TimePDEBase:
@@ -178,15 +181,22 @@ class TimePDEBase:
         timesteps = torch.linspace(cfg_T.time_domain[0], cfg_T.time_domain[1], cfg_T.timesteps * cfg_T.substeps, device=self.device, dtype=self.dtype)
 
         for step_num, t in enumerate(timesteps):
+            print(f'{step_num = }, {t = }')
             if step_num % cfg_T.substeps == 0:
                 self.u_saves[t.item()] = self.u_graph_main.get_subgraph()
 
             grads_dict = self.u_graph_main.get_grads()
-            us_all, _ = self.u_graph_main.get_all_us_Xs()
             _, Xs = self.u_graph_main.get_us_Xs_pde()
 
-            update = self.cfg_T.dt * self.PDE_timefn.solve(grads_dict, Xs, t)
-            self.u_graph_main.update_grid(-update)
+            update = self.PDE_timefn.solve(grads_dict, Xs, t)
+            self.u_graph_main.set_grid(update)
+
+            # Plotting
+            us, Xs = self.u_graph_main.get_all_us_Xs()
+            plot_interp_graph(Xs, us[:, 0], title="Vx")
+            plot_interp_graph(Xs, us[:, 1], title="Vy")
+
+            plot_interp_graph(Xs, us[:, 2], title="P")
 
 
     def update_boundary(self):
@@ -198,8 +208,9 @@ def main():
     time_cfg= ConfigTime()
     c_print(f'{time_cfg.dt = }', color="bright_magenta")
 
+    u_graph = mesh_graph(cfg)
     #u_graph = new_graph(cfg)
-    u_graph = load_graph(cfg)
+    #u_graph = load_graph(cfg)
 
     time_pde = TimePDEBase(u_graph, time_cfg, cfg)
     time_pde.solve()

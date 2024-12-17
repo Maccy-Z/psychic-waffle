@@ -106,37 +106,6 @@ class UGraphTime(UBase):
         self.N_deriv = self.deriv_calc.N_deriv
 
         self.neumann_mode = False
-        # # 3) Derivative boundary conditions. Linear equations N X derivs - value = 0
-        # deriv_orders, deriv_val, neum_mask = {}, [], []
-        # for point_num, point in self.setup_dict.items():
-        #     if T.DERIV in point.point_type:
-        #         derivs = point.derivatives
-        #
-        #         deriv_orders[point_num] = derivs
-        #         deriv_val.append([d.value for d in derivs])
-        #         neum_mask.append(True)
-        #     else:
-        #         neum_mask.append(False)
-        #
-        # self.neumann_mode = len(deriv_val) > 0
-        # if self.neumann_mode:
-        #     # 3.1) Compute jacobian permutation
-        #     jacob_dict = {i: point for i, point in enumerate(v for v in self.setup_dict.values() if T.GRAD in v.point_type)}
-        #     jacob_main_pos = {i: point for i, point in jacob_dict.items() if (T.NeumOffsetBC not in point.point_type and T.GRAD in point.point_type)}
-        #     jacob_neum_pos = {i: point for i, point in jacob_dict.items() if T.NeumOffsetBC in point.point_type}
-        #     # 3.2) Repeat for each component. Ordering:  [p0_0, p1_0, ..., p0_1, p1_1, ..., ..., b0_0, b0_1, ..., b1_0, b_1_1, ...]
-        #     pde_perm, bc_perm = torch.tensor(list(jacob_main_pos.keys())), torch.tensor( list(jacob_neum_pos.keys()))
-        #     pde_perm = torch.cat([pde_perm + i * self.N_us_grad for i in range(self.N_component)])
-        #     bc_perm = torch.stack([bc_perm + i * self.N_us_grad for i in range(self.N_component)], dim=-1).flatten(0)
-        #     self.row_perm = torch.cat([pde_perm, bc_perm])
-        #
-        #     deriv_val = torch.tensor(deriv_val)
-        #     self.deriv_val = deriv_val.flatten()
-        #     self.deriv_orders_bc = deriv_orders
-        #     self.neumann_mask = torch.tensor(neum_mask)
-        #
-        #     self._cuda_bc()
-        #     self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask, self.grad_mask, self.deriv_orders_bc, self.N_us_tot, N_component, device=self.device)
 
     def get_subgraph(self):
         subraph_copy = UTemp(self._Xs.clone(), self._us.clone(), self.deriv_calc, self.pde_mask.clone())

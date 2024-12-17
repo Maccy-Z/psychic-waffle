@@ -3,13 +3,13 @@ import sys
 import pickle
 from cprint import c_print
 import json
+import meshpy.triangle as tri
+
 from pde.mesh_generation.mesh_gen_utils import (MeshProps, min_dist_to_boundary,
                             plot_mesh, extract_mesh_data)
 from pde.mesh_generation.geometries import MeshFacet, Circle, Box, Line, Ellipse
-from pde.graph_grid.graph_store import P_Types as PT
-import meshpy.triangle as tri
-
-
+from pde.graph_grid.graph_store import P_Types as T
+from pde.graph_grid.graph_store import P_TimeTypes as TT
 # Custom function to control mesh refinement
 def refine_fn(vertices, area, props: MeshProps, points, segments):
     # Wrapper function hides exceptions raised here.
@@ -40,7 +40,7 @@ def create_mesh(coords: list[MeshFacet], mesh_props: MeshProps):
 
     holes = []
     seg_marks, p_marks = [], []
-    marker_names = {0: PT.Normal}
+    marker_names = {0: T.Normal}
 
     for i, facets in enumerate(coords):
         cur_p = len(points)
@@ -87,14 +87,14 @@ def gen_points_full():
     mesh_props = MeshProps(min_area, max_area, lengthscale=0.4)
 
     coords = [#Box(Xmin, Xmax, hole=False, name="farfield", remove_edge=2),
-              Line([xmin, ymin], [xmax, ymin], True, name=PT.DirichBC),
-              Line([xmin, ymax], [xmax, ymax], True, name=PT.DirichBC),
-              Line([xmin, ymin], [xmin, ymax], True, name=PT.NeumOffsetBC),
-              Line([xmax, ymax], [xmax, ymin], True, name=PT.DirichBC),
-              Circle(circle_center, circle_radius, lengthscale, True, name=PT.DirichBC),
-              Circle((1.0, 0.5), circle_radius, lengthscale, True, name=PT.DirichBC),
-              Circle((1.0, 0.8), circle_radius, lengthscale, True, name=PT.DirichBC),
-              Ellipse((2.0, 1), 0.2, 0.75, np.pi/3, lengthscale, True, dist_req=True, name=PT.DirichBC),
+              Line([xmin, ymin], [xmax, ymin], True, name=T.DirichBC),
+              Line([xmin, ymax], [xmax, ymax], True, name=T.DirichBC),
+              Line([xmin, ymin], [xmin, ymax], True, name=T.NeumOffsetBC),
+              Line([xmax, ymax], [xmax, ymin], True, name=T.DirichBC),
+              Circle(circle_center, circle_radius, lengthscale, True, name=T.DirichBC),
+              Circle((1.0, 0.5), circle_radius, lengthscale, True, name=T.DirichBC),
+              Circle((1.0, 0.8), circle_radius, lengthscale, True, name=T.DirichBC),
+              Ellipse((2.0, 1), 0.2, 0.75, np.pi / 3, lengthscale, True, dist_req=True, name=T.DirichBC),
         # Line([1, 0.1], [1, 0.5], name="Inlet1")
               ]
     mesh, marker_tags = create_mesh(coords, mesh_props)
@@ -104,15 +104,49 @@ def gen_points_full():
 
     p_tags = [marker_tags[int(i)] for i in p_markers]
 
-    # plot_mesh(mesh)
+    #plot_mesh(mesh)
+    return points, p_tags
 
+def gen_mesh_time():
+    min_area = 7e-3
+    max_area = 10e-3
+    xmin, xmax = 0, 3
+    ymin, ymax = 0.0, 1.5
+    circle_center = (0.5, 0.4)
+    circle_radius = 0.1
+
+    lengthscale = np.sqrt(2*min_area)
+    # print(lengthscale)
+
+    mesh_props = MeshProps(min_area, max_area, lengthscale=0.4)
+
+    coords = [#Box(Xmin, Xmax, hole=False, name="farfield", remove_edge=2),
+              Line([xmin, ymin], [xmax, ymin], True, name=TT.DirichBC),
+              Line([xmin, ymax], [xmax, ymax], True, name=T.DirichBC),
+              Line([xmin, ymin], [xmin, ymax], True, name=T.NeumOffsetBC),
+              Line([xmax, ymax], [xmax, ymin], True, name=T.DirichBC),
+              # Circle(circle_center, circle_radius, lengthscale, True, name=PT.DirichBC),
+              # Circle((1.0, 0.5), circle_radius, lengthscale, True, name=PT.DirichBC),
+              # Circle((1.0, 0.8), circle_radius, lengthscale, True, name=PT.DirichBC),
+              # Ellipse((2.0, 1), 0.2, 0.75, np.pi/3, lengthscale, True, dist_req=True, name=PT.DirichBC),
+        # Line([1, 0.1], [1, 0.5], name="Inlet1")
+              ]
+    mesh, marker_tags = create_mesh(coords, mesh_props)
+    point_props, markers, _ = extract_mesh_data(mesh)
+    points, _ = point_props
+    p_markers, _ = markers
+
+    p_tags = [marker_tags[int(i)] for i in p_markers]
+
+    plot_mesh(mesh)
+    exit(9)
     return points, p_tags
 
 
 def main():
     #exit(4)
     try:
-        points, p_tags = gen_points_full()
+        points, p_tags = gen_mesh_time()
         #points, p_tags = PT.FIX, PT.DERIV
         pickle.dump((points, p_tags), sys.stdout.buffer)
     except Exception as e:
