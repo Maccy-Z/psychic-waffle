@@ -81,9 +81,8 @@ def true_pde():
     pde_adj = NeuralPDEGraph(pde_fn, u_graph, cfg, DummyLoss())
 
     pde_adj.forward_solve()
-    us, Xs = u_graph.us, u_graph.Xs
 
-
+    us, Xs = u_graph.get_all_us_Xs()
     plot_interp_graph(Xs, us[:, 0])
     plot_interp_graph(Xs, us[:, 1])
 

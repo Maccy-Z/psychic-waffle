@@ -24,7 +24,7 @@ class PDEFunc(torch.nn.Module, ABC):
         return self.forward(u_dus, Xs)
 
     @abstractmethod
-    def forward(self, u_dus: torch.Tensor, Xs: torch.Tensor):
+    def forward(self, u_dus: torch.Tensor, Xs: torch.Tensor, aux_input=None) -> torch.Tensor:
         """ us_dus.shape = (BS)[N_grads+1, N_vector]. Sorted by (0, 0), (1, 0), (0, 1), (2, 0), (1, 1), ...
             In vmap-able format, (bs) implicit.
             return.shape = (BS)[N_vector]
@@ -36,7 +36,7 @@ class Poisson(PDEFunc):
         super().__init__(cfg=cfg, device=device)
         self.to(device)
 
-    def forward(self, u_dus: torch.Tensor, Xs: torch.Tensor):
+    def forward(self, u_dus: torch.Tensor, Xs: torch.Tensor, aux_input=None):
         print(f'{u_dus.shape = }')
 
         u = u_dus[0]
@@ -44,6 +44,25 @@ class Poisson(PDEFunc):
         d2udx2, d2udxdy, d2udy2 = u_dus[3], u_dus[4], u_dus[5]
 
         resid = 1 * d2udx2 + 1 * d2udy2 + 0 * dudx + 0 * dudy - 5 * u + 5
+        return resid
+
+
+class PressureNS(PDEFunc):
+    def __init__(self, cfg: Config, device='cpu'):
+        super().__init__(cfg=cfg, device=device)
+
+        self.to(device)
+
+    def forward(self, u_dus: torch.Tensor, Xs: torch.Tensor, rhs_val: torch.Tensor):
+        """ Solve pressure Poisson equation:
+                laplacian(p) = RHS(x)
+         """
+        p = u_dus[0]
+        dpdx, dpdy = u_dus[1], u_dus[2]
+        d2pdx2, d2pdxdy, d2pdy2 = u_dus[3], u_dus[4], u_dus[5]
+
+        resid = 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
+
         return resid
 
 class LearnedFunc(PDEFunc):

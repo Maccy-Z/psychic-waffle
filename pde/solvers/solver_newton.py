@@ -24,7 +24,7 @@ class SolverNewton:
 
         self.logging = self.new_log()
 
-    def find_pde_root(self):
+    def find_pde_root(self, aux_input=None):
         """
         Find the root of the PDE using Newton Raphson:
             grad(F(x_n)) * (x_{n+1} - x_n) = -F(x_n)
@@ -34,7 +34,7 @@ class SolverNewton:
         for i in range(self.N_iter):
             logging.debug("\n")
             with Timer(text="Time to calculate jacobian: : {:.4f}", logger=logging.debug):
-                jacobian, residuals = self.jac_calc.jacobian()
+                jacobian, residuals = self.jac_calc.jacobian(aux_input)
 
             st = time.time()
             with Timer(text="Time to solve: : {:.4f}", logger=logging.debug):
@@ -47,7 +47,7 @@ class SolverNewton:
             deltas *= self.lr
             self.sol_grid.update_grid(deltas)
 
-            residuals = self.jac_calc.residuals()
+            residuals = self.jac_calc.residuals(aux_input)
             mean_abs_residual = torch.mean(torch.abs(residuals))
             self.logging["residual"] = mean_abs_residual
 

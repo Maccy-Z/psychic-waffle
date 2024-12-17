@@ -86,7 +86,7 @@ class GraphJacobCalc(JacobCalc):
             self.permuter = CSRPermuter(u_graph.row_perm, dummy_jac_full)
 
     @torch.no_grad()
-    def jacobian(self):
+    def jacobian(self, pde_aux_input=None):
         """
             Compute jacobian dR/dU = dR/dD * dD/dU.
 
@@ -99,9 +99,8 @@ class GraphJacobCalc(JacobCalc):
 
             Vector derivatives are handled as batches of [N, N_comp], then merged into a column concatenated vector [N*N_comp].
         """
-
-        us_all = self.u_graph.us  # Shape = [N_total, N_comp].
-        Xs = self.u_graph.Xs[self.u_graph.pde_mask]  # Shape = [N_total, 2].
+        us_all, _ = self.u_graph.get_all_us_Xs()  # Shape = [N_total, N_comp].
+        _, Xs = self.u_graph.get_us_Xs_pde()  # Shape = [N_total, 2].
 
         # 1) Finite differences D. shape = [N_pde, N_derivs, N_components]
         grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde, N_comp]. Derivative removes boundary points.
@@ -111,8 +110,8 @@ class GraphJacobCalc(JacobCalc):
         dDdU = self.deriv_calc.jacobian() # shape = [N_derivs][N_pde_, N_total_]
 
         # 3) dR/dD. shape = [N_pde*N_comp, N_derivs*N_comp] = [N_pde_, N_derivs_]
-        dRdD = torch.func.vmap(torch.func.jacrev(self.pde_fwd.residuals, argnums=0))(u_dus, Xs) # [N_pde, N_component, N_deriv, N_component]
-        residuals = func.vmap(self.pde_fwd.residuals)(u_dus, Xs)        # [N_pde, N_component]
+        dRdD = torch.func.vmap(torch.func.jacrev(self.pde_fwd.residuals, argnums=0))(u_dus, Xs, pde_aux_input) # [N_pde, N_component, N_deriv, N_component]
+        residuals = func.vmap(self.pde_fwd.residuals)(u_dus, Xs, pde_aux_input)        # [N_pde, N_component]
 
         dRdD = dRdD.permute(1, 0, 3, 2).reshape(self.N_pdes*self.N_component, (self.N_deriv+1)*self.N_component)   # [N_pde_, N_deriv_]
         residuals = residuals.T.reshape(self.N_pdes*self.N_component)    # [N_pde_]
@@ -151,16 +150,15 @@ class GraphJacobCalc(JacobCalc):
         jacobian, _ = self.jacobian()
         return self.transposer.transpose(jacobian)
 
-    def residuals(self):
-
-        us_all = self.u_graph.us  # Shape = [N_total].
-        Xs = self.u_graph.Xs[self.u_graph.pde_mask]  # Shape = [N_total, 2].
+    def residuals(self, aux_input=None):
+        us_all, _ = self.u_graph.get_all_us_Xs()  # Shape = [N_total].
+        _, Xs = self.u_graph.get_us_Xs_pde()  # Shape = [N_total, 2].
 
         # 1) Finite differences D. shape = [N_pde, N_derivs]
         grads_dict = self.deriv_calc.derivative(us_all)  # shape = [N_pde]. Derivative removes boundary points.
         u_dus = torch.stack(list(grads_dict.values()), dim=-1).permute(0, 2, 1)    # shape = [N_pde, N_derivs, N_component]   # shape = [N_pde, N_derivs]
 
-        residuals = func.vmap(self.pde_fwd.residuals)(u_dus, Xs)
+        residuals = func.vmap(self.pde_fwd.residuals)(u_dus, Xs, aux_input)
         return residuals
 
 

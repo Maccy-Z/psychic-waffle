@@ -14,8 +14,8 @@ class PDEForward(PDEFwdBase):
         self.u_graph = u_graph
 
 
-    def residuals(self, u_dus: torch.Tensor, Xs: torch.Tensor):
-        residuals = self.pde_func(u_dus, Xs)
+    def residuals(self, u_dus: torch.Tensor, Xs: torch.Tensor, aux_input=None):
+        residuals = self.pde_func(u_dus, Xs, aux_input)
         return residuals
 
 

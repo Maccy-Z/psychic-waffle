@@ -1,13 +1,16 @@
 import torch
 from cprint import c_print
+from sympy.integrals.heurisch import components
+
 from pde.graph_grid.graph_store import Point, P_Types, Deriv
 from pde.config import Config
 from pde.time_dependent.U_time_graph import UGraphTime, UTemp
 from pde.mesh_generation.subproc_gen_mesh import run_subprocess
 from pde.time_dependent.time_cfg import ConfigTime
 from pde.NeuralPDE_Graph import NeuralPDEGraph
+from pde.graph_grid.U_graph import UGraph
 from pde.graph_grid.graph_utils import plot_interp_graph, test_grid, gen_perim
-
+from pde.pdes.PDEs import PressureNS
 
 def mesh_graph(cfg):
     N_comp = 1
@@ -74,21 +77,30 @@ def load_graph(cfg):
     u_graph = torch.load("save_u_graph.pth", weights_only=False)
     return u_graph
 
-
 class TimePDEFunc:
-    def __init__(self, u_star: UTemp, cfg: Config, cfg_T: ConfigTime):
+    def __init__(self, u_graph_main: UGraphTime, cfg: Config, cfg_T: ConfigTime):
         self.cfg = cfg
         self.cfg_T = cfg_T
         self.device = cfg.DEVICE
         self.dtype = torch.float32
 
-        self.u_star = u_star
+        # Subgraph for intermediate state V_star
+        self.v_star_graph = UGraph.from_time_graph(u_graph_main, components=[0, 1])
+
+        # Solve pressure equation
+        pde_fn_inner = PressureNS(cfg, device=cfg.DEVICE)
+        p_graph = UGraph.from_time_graph(u_graph_main, components=[2])
+        pde_solver = NeuralPDEGraph(pde_fn_inner, p_graph, cfg)
+        self.pde_solver = pde_solver
 
         self.mu = 1
         self.rho = 1
 
     def solve(self, u_dus, Xs, t):
-        """ u_dus: dict[degree, torch.Tensor]. shape = [N_deriv][N_us_grad, N_comp] """
+        """ u_dus: dict[degree, torch.Tensor]. shape = [N_deriv][N_us_grad, N_comp]
+            Returns: Update to us at time t.
+        """
+
         us = u_dus[(0, 0)]
         dudxs = torch.stack([u_dus[(1, 0)], u_dus[(0, 1)]], dim=1)      # shape = [N_us_grad, 2, 3]
         d2udx2s = torch.stack([u_dus[(2, 0)], u_dus[(0, 2)]], dim=1)
@@ -112,14 +124,21 @@ class TimePDEFunc:
         # Pressure = -1/rho grad(p)
         pressure = -1 / self.rho * dpdxs
 
-        print(f'{viscosity.shape = }, {convective.shape = }, {pressure.shape = }')
-        dv = viscosity + convective + pressure
+        # print(f'{viscosity.shape = }, {convective.shape = }, {pressure.shape = }')
+        dv_star = viscosity + convective + pressure
 
-        v_new = vs + self.cfg_T.dt * dv
-        print(f'{v_new.shape = }, {ps.shape = }')
-        u_new = torch.cat([v_new, ps], dim=-1)
+        v_star = vs + self.cfg_T.dt * dv_star
+        self.v_star_graph.set_grid(v_star)
+        v_s_grad = self.v_star_graph.get_grads()
+        div_v_s = v_s_grad[(1, 0)][..., 0] + v_s_grad[(0, 1)][..., 1]
 
-
+        div_v_s += 3
+        self.pde_solver.forward_solve(div_v_s)
+        us, Xs = self.pde_solver.us_graph.get_all_us_Xs()
+        print()
+        print(f'{us.shape = }, {Xs.shape = }')
+        plot_interp_graph(Xs, us[:, 0])
+        #plot_interp_graph(Xs, us[:, 2])
         exit(9)
         return laplacian
 
@@ -141,13 +160,14 @@ class TimePDEBase:
     u_graph_main: UGraphTime
     u_saves: dict[float, UTemp]
 
-    def __init__(self, u_graph: UGraphTime, cfg_T: ConfigTime, cfg_in: Config):
-        self.u_graph_main = u_graph
+    def __init__(self, u_graph_main: UGraphTime, cfg_T: ConfigTime, cfg_in: Config):
+        self.u_graph_main = u_graph_main
         self.cfg_T = cfg_T
         self.cfg_in = cfg_in
         self.u_saves = {}
 
-        self.PDE_timefn = TimePDEFunc(u_graph.get_subgraph(), cfg_in, cfg_T)
+
+        self.PDE_timefn = TimePDEFunc(u_graph_main, cfg_in, cfg_T)
 
         self.device = "cuda"
         self.dtype = torch.float32
@@ -161,17 +181,12 @@ class TimePDEBase:
             if step_num % cfg_T.substeps == 0:
                 self.u_saves[t.item()] = self.u_graph_main.get_subgraph()
 
-            u_tmp = self.u_graph_main.get_subgraph()
-            self.update_step(u_tmp, t)
+            grads_dict = self.u_graph_main.get_grads()
+            us_all, _ = self.u_graph_main.get_all_us_Xs()
+            _, Xs = self.u_graph_main.get_us_Xs_pde()
 
-
-    def update_step(self, u_tmp: UTemp, t):
-        us_all = u_tmp.us
-        Xs = u_tmp.Xs[u_tmp.pde_mask]
-        grads_dict = u_tmp.deriv_calc.derivative(us_all)
-
-        update = self.cfg_T.dt * self.PDE_timefn.solve(grads_dict, Xs, t)
-        self.u_graph_main.update_grid(-update)
+            update = self.cfg_T.dt * self.PDE_timefn.solve(grads_dict, Xs, t)
+            self.u_graph_main.update_grid(-update)
 
 
     def update_boundary(self):
