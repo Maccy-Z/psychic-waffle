@@ -10,18 +10,19 @@ from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
 
 class UTemp(UBase):
-    Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
-    us: Tensor   # [N_us_tot, N_component]                   # Value at node
+    _Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
+    _us: Tensor   # [N_us_tot, N_component]                   # Value at node
     deriv_calc: FinDerivCalcSPMV
 
-    def __init__(self, Xs, us, deriv_calc, pde_mask):
-        self.Xs = Xs
-        self.us = us
+    def __init__(self, Xs, us, deriv_calc, pde_mask, grad_mask):
+        self._Xs = Xs
+        self._us = us
         self.deriv_calc = deriv_calc
         self.pde_mask = pde_mask
+        self.grad_mask = grad_mask
 
     def reset(self):
-        self.us = torch.zeros_like(self.us)
+        self._us = torch.zeros_like(self._us)
 
     def get_grads(self):
         grad_dict = self.deriv_calc.derivative(self._us)
@@ -99,8 +100,8 @@ class UGraph(UBase):
                 edge_idx, fd_weights = calc_coeff(setup_dict, grad_acc, degree)
                 self.graphs[degree] = DerivGraph(edge_idx, fd_weights)
 
-        self._Xs = torch.stack([point.X for point in setup_dict.values()])
-        self._us = torch.tensor([point.value for point in setup_dict.values()])
+        self._Xs = torch.stack([point.X for point in setup_dict.values()]).to(torch.float32)
+        self._us = torch.tensor([point.value for point in setup_dict.values()], dtype=torch.float32)
 
         if device == "cuda":
             self._cuda()

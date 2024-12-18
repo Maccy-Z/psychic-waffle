@@ -8,24 +8,25 @@ from pde.graph_grid.graph_store import DerivGraph, Point, Deriv, T_Point
 from pde.graph_grid.graph_store import P_Types as T, P_TimeTypes as TT
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
-from pde.graph_grid.U_graph import UGraph
+from pde.graph_grid.U_graph import UTemp
 
-class UTemp(UBase):
-    Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
-    us: Tensor   # [N_us_tot, N_component]                   # Value at node
-    deriv_calc: FinDerivCalcSPMV
-
-    def __init__(self, Xs, us, deriv_calc, pde_mask):
-        self.Xs = Xs
-        self.us = us
-        self.deriv_calc = deriv_calc
-        self.pde_mask = pde_mask
-
-    def reset(self):
-        self.us = torch.zeros_like(self.us)
-
-    def _cuda(self):
-        pass
+# class UTemp(UBase):
+#     _Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
+#     _us: Tensor   # [N_us_tot, N_component]                   # Value at node
+#     deriv_calc: FinDerivCalcSPMV
+#
+#     def __init__(self, Xs, us, deriv_calc, pde_mask, grad_mask):
+#         self._Xs = Xs
+#         self._us = us
+#         self.deriv_calc = deriv_calc
+#         self.pde_mask = pde_mask
+#         self.grad_mask = grad_mask
+#
+#     def reset(self):
+#         self._us = torch.zeros_like(self._us)
+#
+#     def _cuda(self):
+#         pass
 
 class UGraphTime(UBase):
     """ Holder for graph structure. """
@@ -37,7 +38,6 @@ class UGraphTime(UBase):
 
     pde_mask: Tensor  # [N_us_tot]                   # Mask for where to enforce PDE on. Bool
     grad_mask: Tensor  # [N_us_tot]                   # Mask for nodes that need to be updated. Bool
-    update_mask: Tensor  # [N_us_tot, N_comp]                   # Mask for derivative BC nodes. Bool
     neumann_mask: Tensor  # [N_us_tot]                   # Mask for derivative BC nodes. Bool
     neumann_mode: bool    # True if there are derivative BCs.
 
@@ -82,9 +82,6 @@ class UGraphTime(UBase):
         # 1) Reorder points. Redefines node values.
         sorted_points = sorted(setup_dict.values(), key=lambda x: x.X[1])
         self.setup_dict = {i: point for i, point in enumerate(sorted_points)}
-        # point_types = [P.point_type for P in self.setup_dict.values()]
-        # update_mask = [[P==TT.NORMAL for P in Ps] for Ps in point_types]
-        # self.update_mask = torch.tensor(update_mask, dtype=torch.bool)
 
         # 2) Compute finite difference stencils / graphs for points that require fitting
         # Each gradient type has its own stencil and graph.
@@ -97,10 +94,11 @@ class UGraphTime(UBase):
                 grad_setup_dict[idx] = Point(T.GRAD, t_p.X, value=None)
             else:
                 grad_setup_dict[idx] = Point(T.DirichBC, t_p.X, value=None)
-
-        update_mask = [(T.GRAD in P.point_type) for P in grad_setup_dict.values()]
-        self.update_mask = torch.tensor(update_mask, dtype=torch.bool)
-        self.N_update = self.update_mask.sum().item()
+        # Points that are updated are where PDE is enforced.
+        grad_mask = [(T.GRAD in P.point_type) for P in grad_setup_dict.values()]
+        self.grad_mask = torch.tensor(grad_mask, dtype=torch.bool)
+        self.pde_mask = self.grad_mask
+        self.N_update = self.grad_mask.sum().item()
 
         self.graphs = {}
         for degree in diff_degrees:
@@ -109,8 +107,8 @@ class UGraphTime(UBase):
                 edge_idx, fd_weights = calc_coeff(grad_setup_dict, grad_acc, degree)
                 self.graphs[degree] = DerivGraph(edge_idx, fd_weights)
 
-        self._Xs = torch.stack([point.X for point in self.setup_dict.values()])
-        self._us = torch.tensor([point.init_val for point in self.setup_dict.values()])
+        self._Xs = torch.stack([point.X for point in self.setup_dict.values()]).to(torch.float32)
+        self._us = torch.tensor([point.init_val for point in self.setup_dict.values()], dtype=torch.float32)
 
         # PDE is enforced on normal points.
         #self.pde_mask = torch.tensor([T.PDE in P.point_type for P in self.setup_dict.values()])
@@ -120,7 +118,7 @@ class UGraphTime(UBase):
         if device == "cuda":
             self._cuda()
 
-        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.update_mask, self.update_mask, self.N_us_tot, self.N_component, device=self.device)
+        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.grad_mask, self.grad_mask, self.N_us_tot, self.N_component, device=self.device)
         self.N_deriv = self.deriv_calc.N_deriv
 
         self.neumann_mode = False
@@ -131,10 +129,10 @@ class UGraphTime(UBase):
             components = [i for i in range(self.N_component)]
 
         N_component = len(components)
-        deriv_calc = FinDerivCalcSPMV(self.graphs, self.update_mask, self.update_mask, self.N_us_tot, N_component, device=self.device)
+        deriv_calc = FinDerivCalcSPMV(self.graphs, self.grad_mask, self.grad_mask, self.N_us_tot, N_component, device=self.device)
 
         us_clone = self._us[:, components].clone()
-        subraph_copy = UTemp(self._Xs.clone(), us_clone, deriv_calc, self.update_mask.clone())
+        subraph_copy = UTemp(self._Xs.clone(), us_clone, deriv_calc, self.pde_mask, self.grad_mask)
 
         return subraph_copy
 
@@ -164,8 +162,8 @@ class UGraphTime(UBase):
         self._us = self._us.cuda(non_blocking=True)
         self._Xs = self._Xs.cuda(non_blocking=True)
 
-        self.update_mask = self.update_mask.cuda(non_blocking=True)
-        # self.pde_mask = self.pde_mask.cuda(non_blocking=True)
+        self.grad_mask = self.grad_mask.cuda(non_blocking=True)
+        self.pde_mask = self.pde_mask.cuda(non_blocking=True)
         #self.dirich_mask = self.dirich_mask.cuda(non_blocking=True)
         #self.grad_mask = self.grad_mask.cuda(non_blocking=True)
         [graph.cuda() for graph in self.graphs.values()]

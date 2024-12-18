@@ -98,6 +98,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         derivatives = {(0, 0): Us[self.eq_mask]}
 
         for order, spm in self.fd_spms.items():
+            Us = Us.contiguous()
             derivatives[order] = torch.mm(spm, Us)
         return derivatives
 

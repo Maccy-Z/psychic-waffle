@@ -153,6 +153,8 @@ class TimePDEFunc:
         # Uncorrected velocity update
         dv_star = viscosity + convective + pressure
         v_star = vs + self.cfg_T.dt * dv_star
+
+
         self.v_star_graph.set_grid(v_star)
 
         # Pressure correction: laplacian(dP) = rho/dt div(v_star)

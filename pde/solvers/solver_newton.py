@@ -29,7 +29,7 @@ class SolverNewton:
         Find the root of the PDE using Newton Raphson:
             grad(F(x_n)) * (x_{n+1} - x_n) = -F(x_n)
 
-        :param extra: Additional conditioning for the PDE
+        :param aux_input: Additional conditioning for the PDE
         """
         for i in range(self.N_iter):
             logging.debug("\n")
