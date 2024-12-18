@@ -22,8 +22,9 @@ def run_subprocess():
         # Handle error message from stderr
         print("Error")
         print(f'{proc.returncode = }')
-        error = json.loads(stderr.decode())
-        raise Exception(error.get("message", "Unknown error"))
+        error = stderr.decode()
+        print(error)
+        raise Exception(error)
 
 
 if __name__ == "__main__":

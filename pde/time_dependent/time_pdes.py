@@ -2,10 +2,13 @@ import torch
 from cprint import c_print
 from matplotlib import pyplot as plt
 
-from pde.graph_grid.graph_store import Point, P_Types, Deriv
+from pde.graph_grid.graph_store import Point,  Deriv, T_Point
+from pde.graph_grid.graph_store import P_TimeTypes as TT, P_Types as T
 from pde.config import Config
 from pde.time_dependent.U_time_graph import UGraphTime, UTemp
-from pde.mesh_generation.subproc_gen_mesh import run_subprocess
+#from pde.mesh_generation.subproc_gen_mesh import run_subprocess
+from pde.mesh_generation.generate_mesh import gen_mesh_time
+
 from pde.time_dependent.time_cfg import ConfigTime
 from pde.NeuralPDE_Graph import NeuralPDEGraph
 from pde.graph_grid.U_graph import UGraph
@@ -15,29 +18,57 @@ from pde.pdes.PDEs import PressureNS
 def mesh_graph(cfg):
     N_comp = 3
 
-    deriv = [Deriv(comp=[0], orders=[(1, 0)], value=0.)]#, Deriv(comp=[1], orders=[(1, 0)], value=1.)]
-    value = [0. for _ in range(N_comp)]
-    # points, p_tags = gen_points_full()
-    points, p_tags = run_subprocess()
-    c_print(f'Number of mesh points: {len(points)}', "green")
 
-    points = torch.from_numpy(points).float()
-    Xs_all = {}
-    for i, (point, tag) in enumerate(zip(points, p_tags)):
-        value = [i/500 for _ in range(N_comp)]
+    xmin, xmax = 0, 3
+    ymin, ymax = 0.0, 1.5
+    Xs, p_tags = gen_mesh_time(xmin, xmax, ymin, ymax)
+    Xs = torch.from_numpy(Xs).float()
+    c_print(f'Number of mesh points: {len(Xs)}', "green")
 
-        if P_Types.DERIV in tag:
-            Xs_all[i] = Point(P_Types.Normal, point, value=value)
-        else:
+    # Set up time-graph
+    setup_T = {}
+    for i, (X, tag) in enumerate(zip(Xs, p_tags)):
+        if tag == "Wall":
+            value = [0 for _ in range(N_comp)]
+            setup_T[i] = T_Point([TT.FIXED, TT.FIXED, TT.MANUAL], X, init_val=value)
+        elif tag == "Left":
+            value = [1, 0, 0]
+            setup_T[i] = T_Point([TT.FIXED, TT.FIXED, TT.MANUAL], X, init_val=value)
+        elif tag == "Right":
+            value = [0, 0, 0]
+            setup_T[i] = T_Point([TT.NORMAL, TT.NORMAL, TT.MANUAL], X, init_val=value)
+        elif tag == "Normal":
+            value = [0, 0, 0]
+            setup_T[i] = T_Point([TT.NORMAL, TT.NORMAL, TT.NORMAL], X, init_val=value)
 
-            Xs_all[i] = Point(tag, point, value=value)
+    u_graph_time = UGraphTime(setup_T, N_component=N_comp, grad_acc=4, device=cfg.DEVICE)
+    #exit(4)
+    with open("../pdes/save_u_graph_T.pth", "wb") as f:
+        torch.save(u_graph_time, f)
 
-    u_graph = UGraphTime(Xs_all, N_component=N_comp, grad_acc=4, device=cfg.DEVICE)
+
+    # Set up PDE graph for pressure
+    deriv = [Deriv(comp=[0], orders=[(0, 1)], value=0.)]#, Deriv(comp=[1], orders=[(1, 0)], value=1.)]
+
+    setup_pde = {}
+    for i, (X, tag) in enumerate(zip(Xs, p_tags)):
+        if tag == "Wall":
+            deriv = [Deriv(comp=[0], orders=[(0, 1)], value=0.)]
+            setup_pde[i] = Point(T.NeumOffsetBC, X, value=[0], derivatives=deriv)
+        elif tag == "Left":
+            deriv = [Deriv(comp=[0], orders=[(1, 0)], value=0.)]
+            setup_pde[i] = Point(T.NeumOffsetBC, X, value=[0], derivatives=deriv)
+        elif tag == "Right":
+            setup_pde[i] = Point(T.DirichBC, X, value=[0])
+        elif tag == "Normal":
+            setup_pde[i] = Point(T.Normal, X, value=[0])
+
+    u_graph_pde = UGraph(setup_pde, N_component=1, grad_acc=4, device=cfg.DEVICE)
 
     with open("../pdes/save_u_graph.pth", "wb") as f:
-        torch.save(u_graph, f)
+        torch.save(u_graph_pde, f)
 
-    return u_graph
+    return u_graph_time, u_graph_pde
 
 def new_graph(cfg):
     cfg = Config()
@@ -78,20 +109,19 @@ def load_graph(cfg):
     return u_graph
 
 class TimePDEFunc:
-    def __init__(self, u_graph_main: UGraphTime, cfg: Config, cfg_T: ConfigTime):
+    def __init__(self, u_graph_T: UGraphTime, u_graph_PDE: UGraph, cfg: Config, cfg_T: ConfigTime):
         self.cfg = cfg
         self.cfg_T = cfg_T
         self.device = cfg.DEVICE
         self.dtype = torch.float32
 
         # Subgraph for intermediate state V_star
-        self.v_star_graph = UGraph.from_time_graph(u_graph_main, components=[0, 1])
+        self.v_star_graph = u_graph_T.get_subgraph(components=[0, 1]) #UGraph.from_time_graph(u_graph_main, components=[0, 1])
 
         # Solve pressure equation
         pde_fn_inner = PressureNS(cfg, device=cfg.DEVICE)
-        p_graph = UGraph.from_time_graph(u_graph_main, components=[2])
-        pde_solver = NeuralPDEGraph(pde_fn_inner, p_graph, cfg)
-        self.P_solver = pde_solver
+        pressure_solver = NeuralPDEGraph(pde_fn_inner, u_graph_PDE, cfg)
+        self.P_solver = pressure_solver
 
         self.mu = 1
         self.rho = 1
@@ -163,14 +193,18 @@ class TimePDEBase:
     u_graph_main: UGraphTime
     u_saves: dict[float, UTemp]
 
-    def __init__(self, u_graph_main: UGraphTime, cfg_T: ConfigTime, cfg_in: Config):
-        self.u_graph_main = u_graph_main
+    def __init__(self, u_graph_T: UGraphTime, u_graph_PDE: UGraph, cfg_T: ConfigTime, cfg_in: Config):
+        """ u_graph_T: Time graph.
+            u_graph_PDE: Graph for internal PDE solver.
+        """
+        self.u_graph_T = u_graph_T
+        self.u_graph_PDE = u_graph_PDE
         self.cfg_T = cfg_T
         self.cfg_in = cfg_in
         self.u_saves = {}
 
 
-        self.PDE_timefn = TimePDEFunc(u_graph_main, cfg_in, cfg_T)
+        self.PDE_timefn = TimePDEFunc(u_graph_T, u_graph_PDE, cfg_in, cfg_T)
 
         self.device = "cuda"
         self.dtype = torch.float32
@@ -183,16 +217,16 @@ class TimePDEBase:
         for step_num, t in enumerate(timesteps):
             print(f'{step_num = }, {t = }')
             if step_num % cfg_T.substeps == 0:
-                self.u_saves[t.item()] = self.u_graph_main.get_subgraph()
+                self.u_saves[t.item()] = self.u_graph_T.get_subgraph()
 
-            grads_dict = self.u_graph_main.get_grads()
-            _, Xs = self.u_graph_main.get_us_Xs_pde()
+            grads_dict = self.u_graph_T.get_grads()
+            _, Xs = self.u_graph_T.get_us_Xs_pde()
 
             update = self.PDE_timefn.solve(grads_dict, Xs, t)
-            self.u_graph_main.set_grid(update)
+            self.u_graph_T.set_grid(update)
 
             # Plotting
-            us, Xs = self.u_graph_main.get_all_us_Xs()
+            us, Xs = self.u_graph_T.get_all_us_Xs()
             plot_interp_graph(Xs, us[:, 0], title="Vx")
             plot_interp_graph(Xs, us[:, 1], title="Vy")
 
@@ -208,11 +242,11 @@ def main():
     time_cfg= ConfigTime()
     c_print(f'{time_cfg.dt = }', color="bright_magenta")
 
-    u_graph = mesh_graph(cfg)
+    u_g_T, u_g_PDE = mesh_graph(cfg)
     #u_graph = new_graph(cfg)
     #u_graph = load_graph(cfg)
 
-    time_pde = TimePDEBase(u_graph, time_cfg, cfg)
+    time_pde = TimePDEBase(u_g_T, u_g_PDE , time_cfg, cfg)
     time_pde.solve()
 
     saved_graphs = time_pde.u_saves

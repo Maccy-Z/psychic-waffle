@@ -66,6 +66,17 @@ class Point:
             return f'\033[33mPoint:\n     X={self.X}, \n     Type={self.point_type}, \n     Value={self.value})\n\033[0m'
 
 @dataclass
+class T_Point:
+    """ value:  If NORMAL, value = initial value.
+                If BOUNDARY, value = boundary value.
+        derivatives: Sum of derivatives = value. """
+    point_type: list[P_TimeTypes]   # [N_component]
+    X: torch.Tensor
+    init_val: float|list[float]
+
+
+
+@dataclass
 class DerivGraph:
     edge_idx: torch.Tensor
     weights: torch.Tensor

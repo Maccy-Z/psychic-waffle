@@ -80,9 +80,14 @@ class UGraph(UBase):
         # 1) Reorder points. Redefines node values.
         sorted_points = sorted(setup_dict.values(), key=lambda x: x.X[1])
         setup_dict = {i: point for i, point in enumerate(sorted_points)}
+        # 1.1) Node properties and masks
         dirich_mask = [T.DirichBC in P.point_type for P in setup_dict.values()]
         self.dirich_mask = torch.tensor(dirich_mask, dtype=torch.bool)
         self.N_dirich = self.dirich_mask.sum().item()
+        # PDE is enforced on normal points.
+        self.pde_mask = torch.tensor([T.PDE in P.point_type for P in setup_dict.values()])
+        # U requires gradient for normal or ghost points.
+        self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in setup_dict.values()])
 
         # 2) Compute finite difference stencils / graphs.
         # Each gradient type has its own stencil and graph.
@@ -96,11 +101,6 @@ class UGraph(UBase):
 
         self._Xs = torch.stack([point.X for point in setup_dict.values()])
         self._us = torch.tensor([point.value for point in setup_dict.values()])
-
-        # PDE is enforced on normal points.
-        self.pde_mask = torch.tensor([T.PDE in P.point_type for P in setup_dict.values()])
-        # U requires gradient for normal or ghost points.
-        self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in setup_dict.values()])
 
         if device == "cuda":
             self._cuda()
@@ -162,40 +162,46 @@ class UGraph(UBase):
         #     self.neumann_mask = torch.tensor([True for _ in range(len(neuman_bc))], device=self.device)
 
     @classmethod
-    def from_time_graph(cls, u_time_graph, components: list[int]=None):
+    def from_time_graph(cls, u_graph_T, components: list[int]=None):
         """ Create UGraph from UTimeGraph. Avoid recomputing derivative graphs and masks to save time. """
         instance = cls.__new__(cls)
-        instance.device = u_time_graph.device
+        print(u_graph_T.setup_dict)
 
-        instance._Xs = u_time_graph._Xs
+        new_setup_dict = {}
+        for idx, P in u_graph_T.setup_dict.items():
+            new_setup_dict[idx] = Point(P.point_type[components], P.X, P.value[components], P.derivatives)
+        exit(8)
+        instance.device = u_graph_T.device
 
-        instance.pde_mask = u_time_graph.pde_mask
-        instance.grad_mask = u_time_graph.grad_mask
-        instance.dirich_mask = u_time_graph.dirich_mask
-        instance.N_us_tot = u_time_graph.N_us_tot
-        instance.N_us_grad = u_time_graph.N_us_grad
-        instance.N_pdes = u_time_graph.N_pdes
-        instance.N_deriv = u_time_graph.N_deriv
-        instance.N_dirich = u_time_graph.N_dirich
+        instance._Xs = u_graph_T._Xs
 
-        instance.graphs = u_time_graph.graphs
+        instance.pde_mask = u_graph_T.pde_mask
+        instance.grad_mask = u_graph_T.grad_mask
+        instance.dirich_mask = u_graph_T.dirich_mask
+        instance.N_us_tot = u_graph_T.N_us_tot
+        instance.N_us_grad = u_graph_T.N_us_grad
+        instance.N_pdes = u_graph_T.N_pdes
+        instance.N_deriv = u_graph_T.N_deriv
+        instance.N_dirich = u_graph_T.N_dirich
 
-        instance.neumann_mode = u_time_graph.neumann_mode
+        instance.graphs = u_graph_T.graphs
+
+        instance.neumann_mode = u_graph_T.neumann_mode
         if instance.neumann_mode:
-            instance.neumann_mask = u_time_graph.neumann_mask
-            instance.deriv_val = u_time_graph.deriv_val
-            instance.deriv_orders_bc = u_time_graph.deriv_orders_bc
-            instance.row_perm = u_time_graph.row_perm
+            instance.neumann_mask = u_graph_T.neumann_mask
+            instance.deriv_val = u_graph_T.deriv_val
+            instance.deriv_orders_bc = u_graph_T.deriv_orders_bc
+            instance.row_perm = u_graph_T.row_perm
 
         if components is not None:
-            instance._us = u_time_graph._us[:, components]
+            instance._us = u_graph_T._us[:, components]
             instance.N_component = len(components)
             # Deriv calc needs to be recomputed since some components may have been removed.
             instance.deriv_calc = FinDerivCalcSPMV(instance.graphs, instance.pde_mask, instance.grad_mask, instance.N_us_tot, instance.N_component, device=instance.device)
         else:
-            instance._us = u_time_graph._us
-            instance.N_component = u_time_graph.N_component
-            instance.deriv_calc = u_time_graph.deriv_calc
+            instance._us = u_graph_T._us
+            instance.N_component = u_graph_T.N_component
+            instance.deriv_calc = u_graph_T.deriv_calc
 
         return instance
 

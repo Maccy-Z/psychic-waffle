@@ -73,19 +73,18 @@ def extract_mesh_data(mesh):
     return (points, triangles), (p_markers, f_markers), (int_edges, bound_edges)
 
 
-def plot_mesh(mesh):
+def plot_mesh(points, p_markers):
     # Points: List of (x, y) coordinates
     # Elements: List of 3-tuples of triangle vertex indices
     # Facets: List of 2-tuples of bounding edge vertex indices
-    point_props, markers, edges = extract_mesh_data(mesh)
-    points, triangles = point_props
-    p_markers, f_markers = markers
-    int_edges, bound_edges = edges
+    #point_props, markers, edges = extract_mesh_data(mesh)
+    # points, _ = point_props
+    # p_markers, _ = markers
 
     # Plot the points
     cmap = cm.viridis
     norm = mcolors.Normalize(vmin=min(p_markers), vmax=max(p_markers))
-    scatter = plt.scatter(
+    plt.scatter(
         points[:, 0],  # X coordinates
         points[:, 1],  # Y coordinates
         c=p_markers,  # Color mapping based on p_markers
@@ -94,21 +93,6 @@ def plot_mesh(mesh):
         marker='o',  # Marker style
         s=15  # Marker size
     )
-    # Plot interior edges
-    # for edge in int_edges:
-    #     point1 = points[edge[0]]
-    #     point2 = points[edge[1]]
-    #     plt.plot([point1[0], point2[0]], [point1[1], point2[1]], c="gray", linewidth=1)  # 'k-' means black line
-    #
-    # # Plot exterior edges
-    # cmap = cm.magma
-    # norm = mcolors.Normalize(vmin=min(f_markers), vmax=max(f_markers))
-    # for edge, f_mark in zip(bound_edges, f_markers):
-    #     point1 = points[edge[0]]
-    #     point2 = points[edge[1]]
-    #     c = cmap(norm(f_mark))
-    #     plt.plot([point1[0], point2[0]], [point1[1], point2[1]], c=c, linewidth=2.0)
-
     # Plot bounding facets (edges)
     plt.gca().set_aspect('equal', adjustable='box')
     plt.xlabel('X-axis')
