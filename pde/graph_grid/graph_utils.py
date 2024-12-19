@@ -194,6 +194,14 @@ def plot_interp_graph(points, values, resolution=1000, title='Nearest Neighbor I
     plt.tight_layout()
     plt.show()
 
+def plot_points(Xs, value, title=""):
+    Xs = Xs.cpu()
+    value = value.cpu()
+
+    plt.title(title)
+    plt.scatter(Xs[:, 0], Xs[:, 1], c=value, cmap='viridis')
+    plt.show()
+
 
 if __name__ == "__main__":
     # Sample data: list of (x, y) coordinates and their scalar values

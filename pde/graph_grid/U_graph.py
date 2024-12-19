@@ -31,6 +31,12 @@ class UTemp(UBase):
     def _cuda(self):
         pass
 
+    def set_grid(self, new_us):
+        """
+        Set grid to new values. Used for Jacobian computation.
+        """
+        self._us[self.grad_mask] = new_us.flatten()
+
 class UGraph(UBase):
     """ Holder for graph structure. """
     _Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
@@ -58,7 +64,14 @@ class UGraph(UBase):
     deriv_calc: FinDerivCalcSPMV
     deriv_orders_bc: dict[int, Deriv]  # [N_deriv_BC, 2]     # Derivative order for each derivative BC
 
+
+    # If Neumann:
+    deriv_val: Tensor # [N_deriv_BC]            # Derivative values at nodes for BC
     row_perm: Tensor # [N_us_grad] # Permutation for Jacobian matrix
+    deriv_calc_bc: FinDerivCalcSPMV
+
+    # Get all gradients if needed
+    deriv_calc_eval: FinDerivCalcSPMV = None
 
     def _check(self, setup_dict):
         """ Check problem is well specified """
@@ -162,49 +175,14 @@ class UGraph(UBase):
         #     self.deriv_val = neuman_bc
         #     self.neumann_mask = torch.tensor([True for _ in range(len(neuman_bc))], device=self.device)
 
-    @classmethod
-    def from_time_graph(cls, u_graph_T, components: list[int]=None):
-        """ Create UGraph from UTimeGraph. Avoid recomputing derivative graphs and masks to save time. """
-        instance = cls.__new__(cls)
-        print(u_graph_T.setup_dict)
+    def set_eval_deriv_calc(self, mask):
+        assert self.deriv_calc_eval is None, "Already set eval deriv calc"
 
-        new_setup_dict = {}
-        for idx, P in u_graph_T.setup_dict.items():
-            new_setup_dict[idx] = Point(P.point_type[components], P.X, P.value[components], P.derivatives)
-        exit(8)
-        instance.device = u_graph_T.device
+        self.deriv_calc_eval = FinDerivCalcSPMV(self.graphs, mask, mask, self.N_us_tot, self.N_component, device=self.device)
 
-        instance._Xs = u_graph_T._Xs
-
-        instance.pde_mask = u_graph_T.pde_mask
-        instance.grad_mask = u_graph_T.grad_mask
-        instance.dirich_mask = u_graph_T.dirich_mask
-        instance.N_us_tot = u_graph_T.N_us_tot
-        instance.N_us_grad = u_graph_T.N_us_grad
-        instance.N_pdes = u_graph_T.N_pdes
-        instance.N_deriv = u_graph_T.N_deriv
-        instance.N_dirich = u_graph_T.N_dirich
-
-        instance.graphs = u_graph_T.graphs
-
-        instance.neumann_mode = u_graph_T.neumann_mode
-        if instance.neumann_mode:
-            instance.neumann_mask = u_graph_T.neumann_mask
-            instance.deriv_val = u_graph_T.deriv_val
-            instance.deriv_orders_bc = u_graph_T.deriv_orders_bc
-            instance.row_perm = u_graph_T.row_perm
-
-        if components is not None:
-            instance._us = u_graph_T._us[:, components]
-            instance.N_component = len(components)
-            # Deriv calc needs to be recomputed since some components may have been removed.
-            instance.deriv_calc = FinDerivCalcSPMV(instance.graphs, instance.pde_mask, instance.grad_mask, instance.N_us_tot, instance.N_component, device=instance.device)
-        else:
-            instance._us = u_graph_T._us
-            instance.N_component = u_graph_T.N_component
-            instance.deriv_calc = u_graph_T.deriv_calc
-
-        return instance
+    def get_eval_grads(self):
+        grad_dict = self.deriv_calc_eval.derivative(self._us)
+        return grad_dict
 
     def get_grads(self):
         grad_dict = self.deriv_calc.derivative(self._us)

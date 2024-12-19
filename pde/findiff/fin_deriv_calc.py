@@ -56,7 +56,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
             Jacobian is A[eq_mask][us_mask]
 
             eq_mask: Points where constraint functions needed (PDEs / BCs)
-            grad_mask: u points that need to be updated
+            grad_mask: u points that need to be updated. Used for Jacobian.
             N_us_tot: Total number of u points on graph.
             N_components: Number of components in u.
         """
@@ -72,6 +72,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         only_us = coo_row_select(only_us, self.eq_mask)
         only_us = coo_col_select(only_us, self.grad_mask)
         self.jac_spms.append(only_us.to_sparse_csr())   # shape = [N_deriv], [N_eqs, N_us_tot]
+
         for order, graph in fd_graphs.items():
             edge_idx = graph.edge_idx
             edge_coeff = graph.weights

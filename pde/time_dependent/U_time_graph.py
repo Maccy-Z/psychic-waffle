@@ -9,7 +9,7 @@ from pde.graph_grid.graph_store import P_Types as T, P_TimeTypes as TT
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
 from pde.graph_grid.U_graph import UTemp
-
+from pde.graph_grid.graph_utils import plot_points
 # class UTemp(UBase):
 #     _Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
 #     _us: Tensor   # [N_us_tot, N_component]                   # Value at node
@@ -36,8 +36,8 @@ class UGraphTime(UBase):
     _us: Tensor   # [N_us_tot, N_component]                   # Value at node
     deriv_val: Tensor # [N_deriv_BC*N_component]            # Derivative values at nodes for BC
 
-    pde_mask: Tensor  # [N_us_tot]                   # Mask for where to enforce PDE on. Bool
-    grad_mask: Tensor  # [N_us_tot]                   # Mask for nodes that need to be updated. Bool
+    pde_mask: Tensor  # [N_us_tot]                   # Where dU/dt is enforced. Bool
+    grad_mask: Tensor  # [N_us_tot, N_component]                   # Nodes that need to be updated. Bool
     neumann_mask: Tensor  # [N_us_tot]                   # Mask for derivative BC nodes. Bool
     neumann_mode: bool    # True if there are derivative BCs.
 
@@ -83,9 +83,12 @@ class UGraphTime(UBase):
         sorted_points = sorted(setup_dict.values(), key=lambda x: x.X[1])
         self.setup_dict = {i: point for i, point in enumerate(sorted_points)}
 
-        # 2) Compute finite difference stencils / graphs for points that require fitting
-        # Each gradient type has its own stencil and graph.
-        diff_degrees = gen_multi_idx_tuple(max_degree)[1:] # 0th order is just itself.
+        # 1.1) Masks for points that need updating.
+        grad_mask = [[TT.FIXED not in P_type for P_type in P_comps.point_type]
+                          for P_comps in self.setup_dict.values()]
+        self.grad_mask = torch.tensor(grad_mask, dtype=torch.bool)
+
+        # 1.2) Masks for points updated using du/dt ODE
         grad_setup_dict = {}
         for idx, t_p in self.setup_dict.items():
             P_type = t_p.point_type
@@ -94,12 +97,15 @@ class UGraphTime(UBase):
                 grad_setup_dict[idx] = Point(T.GRAD, t_p.X, value=None)
             else:
                 grad_setup_dict[idx] = Point(T.DirichBC, t_p.X, value=None)
-        # Points that are updated are where PDE is enforced.
-        grad_mask = [(T.GRAD in P.point_type) for P in grad_setup_dict.values()]
-        self.grad_mask = torch.tensor(grad_mask, dtype=torch.bool)
-        self.pde_mask = self.grad_mask
+        pde_mask = [(T.GRAD in P.point_type) for P in grad_setup_dict.values()]
+        self.pde_mask = torch.tensor(pde_mask, dtype=torch.bool)
+
+
         self.N_update = self.grad_mask.sum().item()
 
+        # 2) Compute finite difference stencils / graphs for points that require fitting
+        # Each gradient type has its own stencil and graph.
+        diff_degrees = gen_multi_idx_tuple(max_degree)[1:] # 0th order is just itself.
         self.graphs = {}
         for degree in diff_degrees:
             c_print(f"Generating graph for degree {degree}", color="black")
@@ -113,29 +119,33 @@ class UGraphTime(UBase):
         # PDE is enforced on normal points.
         #self.pde_mask = torch.tensor([T.PDE in P.point_type for P in self.setup_dict.values()])
         # U requires gradient for normal or ghost points.
-        self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in self.setup_dict.values()])
+        # self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in self.setup_dict.values()])
+
 
         if device == "cuda":
             self._cuda()
 
-        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.grad_mask, self.grad_mask, self.N_us_tot, self.N_component, device=self.device)
+        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.pde_mask, self.N_us_tot, self.N_component, device=self.device)
         self.N_deriv = self.deriv_calc.N_deriv
 
         self.neumann_mode = False
 
-    def get_subgraph(self, components=None):
+    def get_subgraph(self, components=None, all_grads=False):
         """ Make copy of subgraph with only certain components. """
         if components is None:
             components = [i for i in range(self.N_component)]
 
-        N_component = len(components)
-        deriv_calc = FinDerivCalcSPMV(self.graphs, self.grad_mask, self.grad_mask, self.N_us_tot, N_component, device=self.device)
+        if all_grads:
+            mask = torch.ones_like(self.pde_mask).bool()
+        else:
+            mask = self.grad_mask
 
+        N_component = len(components)
+        deriv_calc = FinDerivCalcSPMV(self.graphs, mask, mask, self.N_us_tot, N_component, device=self.device)
         us_clone = self._us[:, components].clone()
-        subraph_copy = UTemp(self._Xs.clone(), us_clone, deriv_calc, self.pde_mask, self.grad_mask)
+        subraph_copy = UTemp(self._Xs.clone(), us_clone, deriv_calc, self.pde_mask, self.grad_mask[:, components])
 
         return subraph_copy
-
 
     def reset(self):
         self._us = torch.zeros_like(self._us)
@@ -156,6 +166,28 @@ class UGraphTime(UBase):
     def get_grads(self):
         grad_dict = self.deriv_calc.derivative(self._us)
         return grad_dict
+
+    def get_us_grad(self) -> list[torch.Tensor]:
+        """ Returns us that need fitting, as list for each component since shapes are different.
+            return.shape: [N_component][N_us_grad[i], 1]
+        """
+        # print(f'{self.grad_mask.shape = }')
+
+
+        us_fit = [(self._us[:, i][self.grad_mask[:, i]]).unsqueeze(-1) for i in range(self.N_component)]
+        return us_fit
+        # [print(us_fit[i].shape) for i in range(self.N_component)]
+        # assert False
+
+    def update_grid(self, deltas):
+        raise NotImplementedError
+
+    def set_grid(self, new_us):
+        """
+        Set grid to new values.
+        new_us.shape = [N_us_grad_total]
+        """
+        self._us[self.grad_mask] = new_us
 
     def _cuda(self):
         """ Move graph data to CUDA. """

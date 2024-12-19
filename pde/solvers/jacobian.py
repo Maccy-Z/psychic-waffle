@@ -110,7 +110,7 @@ class GraphJacobCalc(JacobCalc):
         dDdU = self.deriv_calc.jacobian() # shape = [N_derivs][N_pde_, N_total_]
 
         # 3) dR/dD. shape = [N_pde*N_comp, N_derivs*N_comp] = [N_pde_, N_derivs_]
-        dRdD, residuals = self.resid_jac_val(u_dus, Xs) if pde_aux_input is None else self.resid_jac_val(u_dus, Xs, pde_aux_input)# [N_pde, N_component, N_deriv, N_component]
+        dRdD, residuals = self.resid_jac_val(u_dus, Xs) if (pde_aux_input is None) else self.resid_jac_val(u_dus, Xs, pde_aux_input)# [N_pde, N_component, N_deriv, N_component]
                                                                                                                     # residuals.shape = [N_pde, N_component]
         dRdD = dRdD.permute(1, 0, 3, 2).reshape(self.N_pdes*self.N_component, (self.N_deriv+1)*self.N_component)   # [N_pde_, N_deriv_]
         residuals = residuals.T.reshape(self.N_pdes*self.N_component)    # [N_pde_]

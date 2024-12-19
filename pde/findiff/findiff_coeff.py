@@ -265,16 +265,15 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
     min_points = min(50, N_us_tot)
     max_points = min(251, N_us_tot + 1)
 
-    pde_dict = {idx: point for idx, point in point_dict.items() if P_Types.GRAD in point.point_type}
+    #pde_dict = {idx: point for idx, point in point_dict.items() if P_Types.GRAD in point.point_type}
+    pde_dict = {idx: point for idx, point in point_dict.items()}
+
     mp_args = [(j, point.X, diff_order, diff_acc, N_us_tot, min_points, max_points) for j, point in pde_dict.items()]
 
     with Pool(processes=16, initializer=_init_pool, initargs=(kdtree, Xs_all)) as pool:
         results = pool.starmap(_calc_coeff_single, mp_args)
 
-
     edge_idxs, weights = zip(*results)
-    # edge_idxs = torch.cat(edge_idxs, dim=1)
-    # weights = torch.cat(weights)
     # Pytorch multiprocessing bug
     edge_idxs = np.concatenate(edge_idxs, axis=1)
     weights = np.concatenate(weights)

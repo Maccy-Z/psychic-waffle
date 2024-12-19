@@ -36,7 +36,7 @@ def mesh_graph(cfg):
             setup_T[i] = T_Point([TT.FIXED, TT.FIXED, TT.MANUAL], X, init_val=value)
         elif tag == "Right":
             value = [0, 0, 0]
-            setup_T[i] = T_Point([TT.NORMAL, TT.NORMAL, TT.MANUAL], X, init_val=value)
+            setup_T[i] = T_Point([TT.NORMAL, TT.NORMAL, TT.FIXED], X, init_val=value)
         elif tag == "Normal":
             value = [0, 0, 0]
             setup_T[i] = T_Point([TT.NORMAL, TT.NORMAL, TT.NORMAL], X, init_val=value)
@@ -114,9 +114,11 @@ class TimePDEFunc:
         self.cfg_T = cfg_T
         self.device = cfg.DEVICE
         self.dtype = torch.float32
+        self.u_graph_T = u_graph_T
+        self.u_graph_PDE = u_graph_PDE
 
         # Subgraph for intermediate state V_star
-        self.v_star_graph = u_graph_T.get_subgraph(components=[0, 1]) #UGraph.from_time_graph(u_graph_main, components=[0, 1])
+        self.v_star_graph = u_graph_T.get_subgraph(components=[0, 1], all_grads=True)
 
         # Solve pressure equation
         pde_fn_inner = PressureNS(cfg, device=cfg.DEVICE)
@@ -126,10 +128,19 @@ class TimePDEFunc:
         self.mu = 1
         self.rho = 1
 
+        # The PDE is solved on a different graph from time derivatives. Some
+        self.P_pde_mask = u_graph_PDE.pde_mask
+        self.V_star_mask = self.v_star_graph.pde_mask
+        #print(f'{self.V_star_mask.sum() = }')
+        u_graph_PDE.set_eval_deriv_calc(self.V_star_mask)
+
     def solve(self, u_dus, Xs, t):
         """ u_dus: dict[degree, torch.Tensor]. shape = [N_deriv][N_us_grad, N_comp]
             Returns: new values of velocity and pressure at variable nodes at time t.
         """
+        self.u_graph_PDE.reset()
+        self.v_star_graph.reset()
+
         us = u_dus[(0, 0)]
         dudxs = torch.stack([u_dus[(1, 0)], u_dus[(0, 1)]], dim=1)      # shape = [N_us_grad, 2, 3]
         d2udx2s = torch.stack([u_dus[(2, 0)], u_dus[(0, 2)]], dim=1)
@@ -138,7 +149,7 @@ class TimePDEFunc:
         dvdxs = dudxs[..., :-1]
         d2vdx2s = d2udx2s[..., :-1]
         # Last component is pressure
-        ps = us[..., -1:]
+        #ps = us[..., -1:]
         dpdxs = dudxs[..., -1]
         #d2pdx2s = d2udx2s[..., -1:]
 
@@ -152,29 +163,51 @@ class TimePDEFunc:
         pressure = -1 / self.rho * dpdxs
         # Uncorrected velocity update
         dv_star = viscosity + convective + pressure
-        v_star = vs + self.cfg_T.dt * dv_star
-
-
+        v_star = vs +  dv_star * self.cfg_T.dt
         self.v_star_graph.set_grid(v_star)
+
+        # _u, _X = self.v_star_graph.get_all_us_Xs()
+        # print(_u.shape)
+        # print(_X.shape)
+        # plot_interp_graph(_X, _u[:, 0], title=f"Vx- Step {t}")
+        # plot_interp_graph(_X, _u[:, 1], title=f"Vy- Step {t}")
 
         # Pressure correction: laplacian(dP) = rho/dt div(v_star)
         v_star_grad = self.v_star_graph.get_grads()
         div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
         div_v_s = div_v_s * self.rho / self.cfg_T.dt
         # Solve pressure equation
-        self.P_solver.us_graph.reset()
+        div_v_s = div_v_s[self.P_pde_mask]
         self.P_solver.forward_solve(div_v_s)
-        dP = self.P_solver.us_graph.get_us_grad()
-        dP_grads = self.P_solver.us_graph.get_grads()
-        grad_dP = torch.cat([dP_grads[(1, 0)], dP_grads[(0, 1)]], dim=1)
+
+        _p, _X = self.u_graph_PDE.get_all_us_Xs()
+        # print(f'{_p.shape = }')
+        # plot_interp_graph(_X, _p[:, 0], title=f"delta-P- Step {t}")
+        # exit("DONE")
 
         # Update pressure
-        P_new = ps + dP
+        dP = self.P_solver.us_graph.get_us_grad()   # shape = [N_ps_grad, 1]
+        P_old = self.u_graph_T.get_us_grad()[2]
+        P_new = P_old + dP
+
+        self.u_graph_PDE.set_grid(P_new)
+        _p, _X = self.u_graph_PDE.get_all_us_Xs()
+        plot_interp_graph(_X, _p[:, 0], title=f"P new- Step {t}")
+        # exit("DONE")
+
         # Update velocity: V^{n+1} = V_star - dt/rho grad(dP)
+        dP_grads = self.u_graph_PDE.get_eval_grads()
+        print(f'{dP_grads[(1, 0)].shape = }')
+        grad_dP = torch.cat([dP_grads[(1, 0)], dP_grads[(0, 1)]], dim=1)
         v_new = v_star - self.cfg_T.dt / self.rho * grad_dP
-        us_new = torch.cat([v_new, P_new], dim=1)
 
+        self.v_star_graph.set_grid(grad_dP)
+        _u, _X = self.v_star_graph.get_all_us_Xs()
+        plot_interp_graph(_X, _u[:, 0], title=f"Vx- Step {t}")
+        plot_interp_graph(_X, _u[:, 1], title=f"Vy- Step {t}")
+        us_new = torch.cat([v_new.flatten(), P_new.flatten()])
 
+        exit(4)
         return us_new
 
 
@@ -214,12 +247,19 @@ class TimePDEBase:
     def solve(self):
         cfg_T = self.cfg_T
 
-        timesteps = torch.linspace(cfg_T.time_domain[0], cfg_T.time_domain[1], cfg_T.timesteps * cfg_T.substeps, device=self.device, dtype=self.dtype)
+        timesteps = torch.linspace(cfg_T.time_domain[0], cfg_T.time_domain[1], cfg_T.timesteps * cfg_T.substeps, dtype=self.dtype)
 
         for step_num, t in enumerate(timesteps):
-            print(f'{step_num = }, {t = }')
+            print(f'{step_num = }, t = {t.item()}')
+
+            # Plotting
+            # us, Xs = self.u_graph_T.get_all_us_Xs()
+            # plot_interp_graph(Xs, us[:, 0], title=f"Vx- Step {step_num}")
+            # plot_interp_graph(Xs, us[:, 1], title=f"Vy- Step {step_num}")
+            # plot_interp_graph(Xs, us[:, 2], title=f"P- Step {step_num}")
+
             if step_num % cfg_T.substeps == 0:
-                self.u_saves[t.item()] = self.u_graph_T.get_subgraph()
+                self.u_saves[t] = self.u_graph_T.get_all_us_Xs()
 
             grads_dict = self.u_graph_T.get_grads()
             _, Xs = self.u_graph_T.get_us_Xs_pde()
@@ -227,12 +267,7 @@ class TimePDEBase:
             update = self.PDE_timefn.solve(grads_dict, Xs, t)
             self.u_graph_T.set_grid(update)
 
-            # Plotting
-            us, Xs = self.u_graph_T.get_all_us_Xs()
-            plot_interp_graph(Xs, us[:, 0], title="Vx")
-            plot_interp_graph(Xs, us[:, 1], title="Vy")
 
-            plot_interp_graph(Xs, us[:, 2], title="P")
 
 
     def update_boundary(self):
