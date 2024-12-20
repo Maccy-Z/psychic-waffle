@@ -8,7 +8,7 @@ from pde.mesh_generation.mesh_gen_utils import (MeshProps, min_dist_to_boundary,
                             plot_mesh, extract_mesh_data)
 from pde.mesh_generation.geometries import MeshFacet, Circle, Box, Line, Ellipse
 from pde.graph_grid.graph_store import P_Types as PT
-from pde.graph_grid.graph_store import P_TimeTypes as TT
+from pde.utils import dict_key_by_value
 
 # Custom function to control mesh refinement
 def refine_fn(vertices, area, props: MeshProps, points, segments):
@@ -109,14 +109,15 @@ def gen_points_full():
     return points, p_tags
 
 def gen_mesh_time(xmin, xmax, ymin, ymax):
-    min_area = 20e-3
-    max_area = 30e-3
+    min_area = 10e-3
+    max_area = 15e-3
 
     circle_center = (0.5, 0.4)
     circle_radius = 0.1
 
     lnscale = np.sqrt(2*min_area)
     # print(lengthscale)
+    X = 0.5
 
     mesh_props = MeshProps(min_area, max_area, lengthscale=0.4)
 
@@ -124,7 +125,9 @@ def gen_mesh_time(xmin, xmax, ymin, ymax):
               Line([xmin, ymin], [xmax, ymin], True, name="Wall"),     # Bottom
               Line([xmin, ymax], [xmax, ymax], True, name="Wall"),     # Top
               Line([xmin, ymin], [xmin, ymax], True, name="Left"),    # Left
-              Line([xmax, ymax], [xmax, ymin], True, name="Right"),   # Right
+              Line([xmin+X, ymin+0.1], [xmin+X, ymax - 0.1], True, name="Left_extra"),  # Left
+
+        Line([xmax, ymax], [xmax, ymin], True, name="Right"),   # Right
               # Circle(circle_center, circle_radius, lengthscale, True, name=PT.DirichBC),
               # Ellipse((2.0, 1), 0.2, 0.75, np.pi/3, lengthscale, True, dist_req=True, name=PT.DirichBC),
               # Line([1, 0.1], [1, 0.5], name="Inlet1")
@@ -136,11 +139,14 @@ def gen_mesh_time(xmin, xmax, ymin, ymax):
 
     # Set corner tags very carefully
     corners = [[xmin, xmin], [xmin, ymax], [xmax, ymax], [xmax, ymin]]
+    wall_tag = dict_key_by_value(marker_tags, "Wall")
+    left_tag = dict_key_by_value(marker_tags, "Left")
     for i, (point, tag) in enumerate(zip(points, p_markers, strict=True)):
         if np.any(np.all(np.isclose(corners, point), axis=1)):
-
-            print(f"Point {point} is {tag}")
-            p_markers[i] = 1        # Corresponds to wall
+            p_markers[i] = wall_tag        # Corresponds to wall
+    for i, (point, tag) in enumerate(zip(points, p_markers, strict=True)):
+        if point[0] < xmin + X and tag not in [wall_tag, wall_tag + 1, left_tag]:
+            p_markers[i] = dict_key_by_value(marker_tags, "Left_extra")
 
     p_tags = [marker_tags[int(i)] for i in p_markers]
 

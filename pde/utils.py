@@ -53,6 +53,15 @@ def adjust_slice(slice_obj, start_adjust=0, stop_adjust=0):
     new_stop = slice_obj.stop + stop_adjust
     return slice(new_start, new_stop)
 
+def dict_key_by_value(d, value):
+    for k, v in d.items():
+        if v == value:
+            return k
+
+    raise ValueError(f"Value {value} not found in dictionary")
+
+
+
 def setup_logging(debug=True):
     import logging
     import sys

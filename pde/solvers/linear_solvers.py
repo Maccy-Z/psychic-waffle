@@ -76,6 +76,9 @@ class LinearSolver:
         return x
 
     def cuda_dense(self, A: torch.Tensor, b: torch.Tensor):
+        A = A.to_dense()
+        print(torch.linalg.matrix_rank(A))
+        print(A.shape)
         deltas = torch.linalg.solve(A, b)
         return deltas
 

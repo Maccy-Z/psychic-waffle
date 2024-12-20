@@ -26,48 +26,48 @@ class FwdConfig:
     jac_mode: JacMode = JacMode.GRAPH
 
     # Newton Raphson PDE solver settings
-    lin_mode: LinMode = LinMode.SPARSE
+    lin_mode: LinMode = LinMode.DENSE
     #lin_mode: LinMode = LinMode.AMGX
     N_iter: int = 4
     lr: float = 1.
     acc: float = 0.
 
     def __post_init__(self):
-        self.lin_solve_cfg = {
-            "config_version": 2,
-            "determinism_flag": 0,
-            "exception_handling": 1,
-
-            "solver": {
-                "obtain_timings": 0,
-                #"print_solve_stats": 1,
-                "solver": "FGMRES",  #"PBICGSTAB", #
-                "convergence": "RELATIVE_INI_CORE",
-                "max_iters": 5,
-                "gmres_n_restart": 5,
-                "gram_schmidt_options": "REORTHOGONALIZED",   # REORTHOGONALIZED
-                "gs_reorthog_repeat": 1,
-
-                "preconditioner": "NOSOLVER",
-
-                "preconditioner": {
-                    "smoother": {"solver": "JACOBI_L1",
-                                 "relaxation_factor": 1.7,
-                                 },
-                    "solver": "AMG",
-                    "coarse_solver": "DENSE_LU_SOLVER",
-                    "algorithm": "AGGREGATION",
-                    "selector": "SIZE_8",
-                    "max_iters": 2,
-                    "presweeps": 8,
-                    "postsweeps": 6,
-                    "cycle": "V",
-                    "max_levels": 3,
-                },
-
-            }
-            # "solver": "DENSE_LU_SOLVER",
-        }
+        # self.lin_solve_cfg = {
+        #     "config_version": 2,
+        #     "determinism_flag": 0,
+        #     "exception_handling": 1,
+        #
+        #     "solver": {
+        #         "obtain_timings": 0,
+        #         #"print_solve_stats": 1,
+        #         "solver": "FGMRES",  #"PBICGSTAB", #
+        #         "convergence": "RELATIVE_INI_CORE",
+        #         "max_iters": 5,
+        #         "gmres_n_restart": 5,
+        #         "gram_schmidt_options": "REORTHOGONALIZED",   # REORTHOGONALIZED
+        #         "gs_reorthog_repeat": 1,
+        #
+        #         "preconditioner": "NOSOLVER",
+        #
+        #         "preconditioner": {
+        #             "smoother": {"solver": "JACOBI_L1",
+        #                          "relaxation_factor": 1.7,
+        #                          },
+        #             "solver": "AMG",
+        #             "coarse_solver": "DENSE_LU_SOLVER",
+        #             "algorithm": "AGGREGATION",
+        #             "selector": "SIZE_8",
+        #             "max_iters": 2,
+        #             "presweeps": 8,
+        #             "postsweeps": 6,
+        #             "cycle": "V",
+        #             "max_levels": 3,
+        #         },
+        #
+        #     }
+        #     # "solver": "DENSE_LU_SOLVER",
+        # }
 
         if self.lin_mode == LinMode.ITERATIVE:
             self.lin_solve_cfg = {"maxiter": self.maxiter, "restart": self.restart, "rtol": self.rtol}
