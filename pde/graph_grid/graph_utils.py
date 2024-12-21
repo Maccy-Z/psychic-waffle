@@ -162,11 +162,12 @@ def test_grid(xmin: float, xmax: float, N: Tensor, device='cpu'):
     return Xs
 
 
-def plot_interp_graph(points, values, resolution=1000, title='Nearest Neighbor Interpolation'):
+def plot_interp_graph(points, values, resolution=1000, title='Nearest Neighbor Interpolation', lim=None):
     # Create a grid over the coordinate space
     # Convert points and values to numpy arrays if they aren't already
     points, values = points.detach().cpu().numpy(), values.detach().cpu().numpy()
-
+    if lim is not None:
+        values = np.clip(values, lim[0], lim[1])
     # Automatically determine the range for x and y
     x_min, x_max = points[:, 0].min(), points[:, 0].max()
     y_min, y_max = points[:, 1].min(), points[:, 1].max()

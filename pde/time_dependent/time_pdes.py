@@ -26,9 +26,13 @@ def mesh_graph(cfg):
     # Set up time-graph
     setup_T = {}
     for i, (X, tag) in enumerate(zip(Xs, p_tags)):
-        if tag == "Wall":
+        if np.any(np.all(np.isclose([[xmax, ymin], [xmax, ymax]], X), axis=1)):
+
+            #setup_T[i] = T_Point([TT.NORMAL, TT.NORMAL, TT.FIXED], X, init_val=value)
+            continue
+        elif tag == "Wall":
             value = [0 for _ in range(N_comp)]
-            setup_T[i] = T_Point([TT.FIXED, TT.FIXED, TT.FIXED], X, init_val=value)
+            setup_T[i] = T_Point([TT.FIXED, TT.FIXED, TT.MANUAL], X, init_val=value)
         elif tag == "Left" or tag == "Left_extra":
             value = [1, 0, 0]
             setup_T[i] = T_Point([TT.FIXED, TT.FIXED, TT.MANUAL], X, init_val=value)
@@ -36,7 +40,9 @@ def mesh_graph(cfg):
             value = [0, 0, 0]
             setup_T[i] = T_Point([TT.NORMAL, TT.NORMAL, TT.FIXED], X, init_val=value)
         elif tag == "Normal":
-            value = [0, 0, 0]
+            vx_init = 1 - (X[0]-0.5)/2.5
+            value = [vx_init, 0, 0]
+
             setup_T[i] = T_Point([TT.NORMAL, TT.NORMAL, TT.NORMAL], X, init_val=value)
         else:
             raise ValueError(f"Unknown tag {tag}")
@@ -52,7 +58,8 @@ def mesh_graph(cfg):
     setup_pde = {}
     for i, (X, tag) in enumerate(zip(Xs, p_tags)):
         if np.any(np.all(np.isclose([[xmax, ymin], [xmax, ymax]], X), axis=1)):
-            setup_pde[i] = Point(T.DirichBC, X, value=[0])
+            #setup_pde[i] = Point(T.DirichBC, X, value=[0])
+            continue
 
         elif tag == "Wall":
             deriv = [Deriv(comp=[0], orders=[(0, 1)], value=0.)]
@@ -74,7 +81,7 @@ def mesh_graph(cfg):
     # plot_points(u_graph_pde._Xs, u_graph_pde.pde_mask, title="pde mask")
     # plot_points(u_graph_pde._Xs, u_graph_pde.neumann_mask, title="neum mask")
     #
-    exit(8)
+    # exit(8)
     with open("../pdes/save_u_graph.pth", "wb") as f:
         torch.save(u_graph_pde, f)
 
@@ -178,7 +185,8 @@ class TimePDEFunc:
         pressure = -1 / self.rho * dpdxs
         # Uncorrected velocity update
         dv_star = viscosity + convective + pressure
-        v_star = dv_star * self.cfg_T.dt + vs
+        #v_star = dv_star * self.cfg_T.dt + vs
+        v_star = vs
         self.v_star_graph.set_grid(v_star)
 
         # Pressure correction: laplacian(dP) = rho/dt div(v_star)
@@ -186,7 +194,7 @@ class TimePDEFunc:
         div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
         div_v_s_ = div_v_s * self.rho / self.cfg_T.dt
         # Solve pressure equation
-        plot_interp_graph(_X, div_v_s_, title=f"Initial divergence Step {t}")
+        plot_interp_graph(_X, div_v_s, title=f"Initial divergence Step {t}")
         div_v_s_ = div_v_s_[self.P_pde_mask]
         self.P_solver.forward_solve(div_v_s_)
         ps, _ = self.p_graph_PDE.get_all_us_Xs()
@@ -212,8 +220,8 @@ class TimePDEFunc:
         #P grad
         self.v_star_graph.set_grid(grad_dP)
         grad_P, _X = self.v_star_graph.get_all_us_Xs()
-        plot_interp_graph(_X, grad_P[:, 0], title=f"grad P x- Step {t}")
-        plot_interp_graph(_X, grad_P[:, 1], title=f"grad P y- Step {t}")
+        # plot_interp_graph(_X, grad_P[:, 0], title=f"grad P x- Step {t}")
+        # plot_interp_graph(_X, grad_P[:, 1], title=f"grad P y- Step {t}")
 
         # # Plotting V
         self.v_star_graph.set_grid(v_new)
@@ -224,10 +232,8 @@ class TimePDEFunc:
         v_star_grad = self.v_star_graph.get_grads()
         div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
         _, _X = self.p_graph_PDE.get_all_us_Xs()
-        print(div_v_s.shape )
-        plot_interp_graph(_X, div_v_s, title=f"div V_star- Step {t}")
-        print(div_v_s.shape)
-        exit(4)
+        # plot_interp_graph(_X, div_v_s, title=f"div V_star- Step {t}")
+        #exit(4)
         return us_new
 
 
@@ -273,7 +279,7 @@ class TimePDEBase:
 
             #Plotting
             us, Xs = self.u_graph_T.get_all_us_Xs()
-            plot_interp_graph(Xs, us[:, 0], title=f"Vx- Step {step_num}")
+            plot_interp_graph(Xs, us[:, 0], title=f"Vx start of Step {step_num}")
             # plot_interp_graph(Xs, us[:, 1], title=f"Vy- Step {step_num}")
             # plot_interp_graph(Xs, us[:, 2], title=f"P- Step {step_num}")
             # exit(9)
@@ -286,6 +292,10 @@ class TimePDEBase:
 
             update = self.PDE_timefn.solve(grads_dict, Xs, t)
             self.u_graph_T.set_grid(update)
+
+            us, Xs = self.u_graph_T.get_all_us_Xs()
+            plot_interp_graph(Xs, us[:, 0], title=f"Vx start of Step {step_num}")
+            exit(8)
 
 
 
