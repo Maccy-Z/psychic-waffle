@@ -109,7 +109,7 @@ def gen_points_full():
     return points, p_tags
 
 def gen_mesh_time(xmin, xmax, ymin, ymax):
-    min_area = 1e-3
+    min_area = 10.e-3
     max_area = 10e-3
 
     circle_center = (0.5, 0.4)
@@ -119,7 +119,7 @@ def gen_mesh_time(xmin, xmax, ymin, ymax):
     # print(lengthscale)
     X = 0.5
 
-    mesh_props = MeshProps(min_area, max_area, lengthscale=0.4)
+    mesh_props = MeshProps(min_area, max_area, lengthscale=0.25)
 
     coords = [#Box(Xmin, Xmax, hole=False, name="farfield", remove_edge=2),
               Line([xmin, ymin], [xmax, ymin], True, name="Wall"),     # Bottom

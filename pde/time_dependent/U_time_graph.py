@@ -130,7 +130,7 @@ class UGraphTime(UBase):
 
         self.neumann_mode = False
 
-    def get_subgraph(self, components=None, all_grads=False):
+    def get_subgraph(self, components=None, all_grads=False) -> UTemp:
         """ Make copy of subgraph with only certain components. """
         if components is None:
             components = [i for i in range(self.N_component)]
@@ -188,6 +188,15 @@ class UGraphTime(UBase):
         new_us.shape = [N_us_grad_total]
         """
         self._us[self.grad_mask] = new_us
+
+    def set_grid_irreg(self, new_us):
+        """
+        Set grid to new values, if grid is irregular accross components.
+        new_us.shape = [N_component][N_us_grad_comp]
+        """
+        for i, us in enumerate(new_us):
+            self._us[self.grad_mask[:, i], i] = us
+        #self._us = new_us
 
     def _cuda(self):
         """ Move graph data to CUDA. """

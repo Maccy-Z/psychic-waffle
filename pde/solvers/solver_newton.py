@@ -36,6 +36,14 @@ class SolverNewton:
             with Timer(text="Time to calculate jacobian: : {:.4f}", logger=logging.debug):
                 jacobian, residuals = self.jac_calc.jacobian(aux_input)
 
+            if i == 3:
+                torch.save(jacobian, "jacobian.pt")
+                torch.save(residuals, "residuals.pt")
+                exit(8)
+            mean_abs_residual = torch.mean(torch.abs(residuals))
+            max_abs_residual = torch.max(torch.abs(residuals))
+            print(f'{i} Mean residual: {mean_abs_residual:.4g}, Max residual: {max_abs_residual:.4g}')
+
             st = time.time()
             with Timer(text="Time to solve: : {:.4f}", logger=logging.debug):
                 # Convert jacobian to sparse here instead of in lin_solver, so we can delete the dense Jacobian asap.
@@ -49,12 +57,16 @@ class SolverNewton:
 
             residuals = self.jac_calc.residuals(aux_input)
             mean_abs_residual = torch.mean(torch.abs(residuals))
+            max_abs_residual = torch.max(torch.abs(residuals))
             self.logging["residual"] = mean_abs_residual
 
-            logging.debug(f'Iteration {i}, Mean residual: {mean_abs_residual:.4g}')
+            logging.debug(f'Iteration {i}, Mean residual: {mean_abs_residual:.4g}, Max residual: {max_abs_residual:.4g}')
             if torch.mean(torch.abs(residuals)) < self.solve_acc:
                 logging.info(f"Newton solver converged early at iteration {i+1}")
                 break
+
+
+
 
 
     def new_log(self):
