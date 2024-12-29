@@ -23,3 +23,4 @@ print(error)
 x2 = torch.linalg.lstsq(A, b).solution
 error = torch.max(torch.abs(A @ x2 - b))
 print(error)
+
