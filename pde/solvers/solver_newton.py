@@ -9,6 +9,7 @@ from pde.cartesian_grid.PDE_Grad import PDEForward
 from pde.solvers.jacobian import JacobCalc
 from pde.solvers.linear_solvers import LinearSolver
 
+I = 0
 class SolverNewton:
     def __init__(self,  sol_grid: UBase, lin_solver: LinearSolver, jac_calc: JacobCalc, cfg: FwdConfig):
         #self.pde_func = pde_func
@@ -36,31 +37,37 @@ class SolverNewton:
             with Timer(text="Time to calculate jacobian: : {:.4f}", logger=logging.debug):
                 jacobian, residuals = self.jac_calc.jacobian(aux_input)
 
-            if i == 3:
-                torch.save(jacobian, "jacobian.pt")
-                torch.save(residuals, "residuals.pt")
-                exit(8)
-            mean_abs_residual = torch.mean(torch.abs(residuals))
-            max_abs_residual = torch.max(torch.abs(residuals))
-            print(f'{i} Mean residual: {mean_abs_residual:.4g}, Max residual: {max_abs_residual:.4g}')
 
-            st = time.time()
             with Timer(text="Time to solve: : {:.4f}", logger=logging.debug):
                 # Convert jacobian to sparse here instead of in lin_solver, so we can delete the dense Jacobian asap.
                 jac_preproc = self.lin_solver.preproc_tensor(jacobian)
-                del jacobian # torch.cuda.empty_cache()
+                # del jacobian # torch.cuda.empty_cache()
                 deltas = self.lin_solver.solve(jac_preproc, residuals)
 
-            self.logging["time"] += time.time() - st
+            error = jacobian @ deltas - residuals
+            max_err = torch.max(torch.abs(error)).item()
+            print(f'{max_err = }')
+
             deltas *= self.lr
             self.sol_grid.update_grid(deltas)
 
-            residuals = self.jac_calc.residuals(aux_input)
+            residuals = self.jac_calc.residuals(aux_input).squeeze()
             mean_abs_residual = torch.mean(torch.abs(residuals))
             max_abs_residual = torch.max(torch.abs(residuals))
+            # print(f'{i} Mean residual: {mean_abs_residual:.4g}, Max abs residual: {max_abs_residual:.4g}')
+
             self.logging["residual"] = mean_abs_residual
 
             logging.debug(f'Iteration {i}, Mean residual: {mean_abs_residual:.4g}, Max residual: {max_abs_residual:.4g}')
+
+            global I
+            I += 1
+            if I == 49:
+                print(I)
+                torch.save(jacobian, "jacobian.pt")
+                torch.save(residuals, "residuals.pt")
+                exit(9)
+
             if torch.mean(torch.abs(residuals)) < self.solve_acc:
                 logging.info(f"Newton solver converged early at iteration {i+1}")
                 break

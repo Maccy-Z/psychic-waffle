@@ -119,6 +119,7 @@ class UGraph(UBase):
         if device == "cuda":
             self._cuda()
 
+        # print(f'{self.pde_mask.sum() = }')
         self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_us_tot, self.N_component, device=self.device)
         self.N_deriv = self.deriv_calc.N_deriv
 
@@ -186,6 +187,9 @@ class UGraph(UBase):
 
     def get_grads(self):
         grad_dict = self.deriv_calc.derivative(self._us)
+        return grad_dict
+    def get_neuman_grads(self):
+        grad_dict = self.deriv_calc_bc.derivative(self._us)
         return grad_dict
 
     def _cuda(self):

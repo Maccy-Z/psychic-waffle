@@ -3,7 +3,7 @@ from dataclasses import dataclass
 @dataclass()
 class ConfigTime:
     time_domain: tuple[int] = (0, 0.001)
-    timesteps: int = 5
+    timesteps: int = 10
     substeps: int = 1
 
     dt: float = None

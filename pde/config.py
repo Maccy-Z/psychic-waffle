@@ -28,7 +28,7 @@ class FwdConfig:
     # Newton Raphson PDE solver settings
     lin_mode: LinMode = LinMode.SPARSE
     #lin_mode: LinMode = LinMode.AMGX
-    N_iter: int = 4
+    N_iter: int = 5
     lr: float = 1.
     acc: float = 0.
 

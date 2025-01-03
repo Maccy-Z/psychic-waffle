@@ -34,7 +34,7 @@ class JacobCalc:
 
         self.device = sol_grid.device
 
-    def jacobian(self):
+    def jacobian(self, aux_input=None):
         """ Returns Jacobain of function. Return shape: [N_pde, N_u_grad].
             PDEs are indexed by pde_mask and Us are indexed by us_grad_mask. 2D coordinates are stacked into 1D here.
             Columns for each function. Row for each u value.
