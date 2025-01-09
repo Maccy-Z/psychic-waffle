@@ -57,12 +57,13 @@ class PressureNS(PDEFunc):
         """ Solve pressure Poisson equation:
                 laplacian(p) = RHS(x)
          """
-        p = u_dus[0]
-        dpdx, dpdy = u_dus[1], u_dus[2]
+        # p = u_dus[0]
+        # dpdx, dpdy = u_dus[1], u_dus[2]
         d2pdx2, d2pdxdy, d2pdy2 = u_dus[3], u_dus[4], u_dus[5]
+        laplacian = u_dus[6]
 
-        resid = 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
-
+        #resid = 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
+        resid = laplacian - rhs_val
         return resid
 
 class LearnedFunc(PDEFunc):

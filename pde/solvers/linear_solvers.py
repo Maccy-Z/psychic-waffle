@@ -67,12 +67,13 @@ class LinearSolver:
         #A_cupy = cp.from_dlpack(A)
         b_cupy = cp.from_dlpack(b)
 
-        # Convert the dense matrix A_cupy to a sparse CSR matrix
+        A_cp = A_cp.astype(cp.float64)
+        b_cupy = b_cupy.astype(cp.float64)
 
         # Solve the sparse linear system Ax = b using CuPy
         x = sp_linalg.spsolve(A_cp, b_cupy)
 
-        x = torch.from_dlpack(x)
+        x = torch.from_dlpack(x).float()
         return x
 
     def cuda_dense(self, A: torch.Tensor, b: torch.Tensor):

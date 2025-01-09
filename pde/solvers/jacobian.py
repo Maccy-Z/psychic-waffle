@@ -161,6 +161,15 @@ class GraphJacobCalc(JacobCalc):
             residuals, _ = func.vmap(self.pde_fwd.residuals)(u_dus, Xs)
         else:
             residuals, _ = func.vmap(self.pde_fwd.residuals)(u_dus, Xs, aux_input)
+
+        # 2) Neumann BCs
+        if self.u_graph.neumann_mode:
+            bc_deriv_pred = self.deriv_calc_bc.derivative(us_all)
+            bc_deriv_true = self.u_graph.deriv_val
+            bc_residuals = bc_deriv_pred - bc_deriv_true
+
+            residuals = torch.cat([residuals.flatten(), bc_residuals])  # shape = [N_pde_+N_bc_]
+            residuals = self.permuter.vector_permute(residuals)
         return residuals
 
 

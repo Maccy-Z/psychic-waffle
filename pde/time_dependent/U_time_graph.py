@@ -111,7 +111,7 @@ class UGraphTime(UBase):
             c_print(f"Generating graph for degree {degree}", color="black")
             with Timer(text="Time to solve: : {:.4f}"):
                 edge_idx, fd_weights = calc_coeff(grad_setup_dict, grad_acc, degree)
-                self.graphs[degree] = DerivGraph(edge_idx, fd_weights)
+                self.graphs[degree] = DerivGraph(edge_idx, fd_weights, shape=(self.N_us_tot, self.N_us_tot))
 
         self._Xs = torch.stack([point.X for point in self.setup_dict.values()]).to(torch.float32)
         self._us = torch.tensor([point.init_val for point in self.setup_dict.values()], dtype=torch.float32)
@@ -125,7 +125,7 @@ class UGraphTime(UBase):
         if device == "cuda":
             self._cuda()
 
-        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.pde_mask, self.N_us_tot, self.N_component, device=self.device)
+        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.pde_mask, self.N_component, device=self.device)
         self.N_deriv = self.deriv_calc.N_deriv
 
         self.neumann_mode = False
@@ -141,7 +141,7 @@ class UGraphTime(UBase):
             mask = self.grad_mask
 
         N_component = len(components)
-        deriv_calc = FinDerivCalcSPMV(self.graphs, mask, mask, self.N_us_tot, N_component, device=self.device)
+        deriv_calc = FinDerivCalcSPMV(self.graphs, mask, mask, N_component, device=self.device)
         us_clone = self._us[:, components].clone()
         subraph_copy = UTemp(self._Xs.clone(), us_clone, deriv_calc, self.pde_mask, self.grad_mask[:, components])
 

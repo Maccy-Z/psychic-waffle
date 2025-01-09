@@ -50,7 +50,7 @@ from pde.utils_sparse import coo_row_select, coo_col_select, CSRToInt32, block_r
 
 class FinDerivCalcSPMV(BaseDerivCalc):
     """ Using sparse matrix-vector multiplication to compute Grad^n(u) using finite differences. """
-    def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, N_us_tot, N_component, device="cpu"):
+    def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, N_component, device="cpu"):
         """ Initialise sparse matrices from finite difference graphs.
             Compute d = A * u [eq_mask]. Compile eq_mask into A.
             Jacobian is A[eq_mask][us_mask]
@@ -64,6 +64,8 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         self.grad_mask = grad_mask
         self.device = device
 
+        N_us_tot = self._check(fd_graphs)
+
         self.fd_spms = {}       # shape = [N_deriv], [N_eqs, N_us_tot]
         self.jac_spms = []      # shape = [N_deriv], [N_eqs, N_grad]
 
@@ -74,9 +76,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         self.jac_spms.append(only_us.to_sparse_csr())   # shape = [N_deriv], [N_eqs, N_us_tot]
 
         for order, graph in fd_graphs.items():
-            edge_idx = graph.edge_idx
-            edge_coeff = graph.weights
-            sp_mat = torch.sparse_coo_tensor(edge_idx, edge_coeff.squeeze(), (N_us_tot, N_us_tot)).T.coalesce()
+            sp_mat = graph.coo().T.coalesce()
             sp_mat = coo_row_select(sp_mat, self.eq_mask)        # shape = [N_eqs, N_us_tot]
             self.fd_spms[order] = CSRToInt32(sp_mat.to_sparse_csr())
 
@@ -89,6 +89,15 @@ class FinDerivCalcSPMV(BaseDerivCalc):
             self.jac_spms[i] = block_repeat_csr(jac_deriv, N_component)
 
         self.N_deriv = len(self.fd_spms)
+
+    def _check(self, fd_graphs):
+        """ Check that all graphs have the same shape. """
+        graphs = list(fd_graphs.values())
+        for graph in graphs:
+            assert graph.shape == graphs[0].shape, "All graphs must have the same shape."
+            assert graph.shape[0] == graph.shape[1], "Graphs must be square."
+
+        return graphs[0].shape[0]
 
 
     def derivative(self, Us) -> dict[tuple, torch.Tensor]:
@@ -115,12 +124,12 @@ class NeumanBCCalc(FinDerivCalcSPMV):
         Precompute the selection derivatives and jacobian, that directly returns residuals / residual jacobian without going through autograd / sparse matmuls
     """
     def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, deriv_orders: dict[int, Deriv],
-                 N_us_tot, N_comp, device="cpu"):
+                 N_comp, device="cpu"):
         """
             deriv_orders: Derivative order for each derivative BC
         """
         # Construct all required derivatives and jacobian.
-        super().__init__(fd_graphs, eq_mask, grad_mask, N_us_tot, N_comp, device=device)
+        super().__init__(fd_graphs, eq_mask, grad_mask, N_comp, device=device)
         N_bc_eqs = sum(eq_mask)
 
         # self.fd_spms[(1, 0)].shape = [N_bc_eqs, N_us_tot]

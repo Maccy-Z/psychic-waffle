@@ -103,6 +103,11 @@ class UGraph(UBase):
         # U requires gradient for normal or ghost points.
         self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in setup_dict.values()])
 
+
+        self._Xs = torch.stack([point.X for point in setup_dict.values()]).to(torch.float32)
+        self._us = torch.tensor([point.value for point in setup_dict.values()], dtype=torch.float32)
+
+
         # 2) Compute finite difference stencils / graphs.
         # Each gradient type has its own stencil and graph.
         diff_degrees = gen_multi_idx_tuple(max_degree)[1:] # 0th order is just itself.
@@ -111,16 +116,19 @@ class UGraph(UBase):
             c_print(f"Generating graph for degree {degree}", color="black")
             with Timer(text="Time to solve: : {:.4f}"):
                 edge_idx, fd_weights = calc_coeff(setup_dict, grad_acc, degree)
-                self.graphs[degree] = DerivGraph(edge_idx, fd_weights)
+                self.graphs[degree] = DerivGraph(edge_idx, fd_weights, shape=(self.N_us_tot, self.N_us_tot))
 
-        self._Xs = torch.stack([point.X for point in setup_dict.values()]).to(torch.float32)
-        self._us = torch.tensor([point.value for point in setup_dict.values()], dtype=torch.float32)
+        # # 2.1) Add additional stencils
+        # divergence = DerivGraph.add(self.graphs[(1, 0)], self.graphs[(0, 1)])
+        laplacian = DerivGraph.add(DerivGraph.compose(self.graphs[(1, 0)], self.graphs[(1, 0)]),
+                                   DerivGraph.compose(self.graphs[(0, 1)], self.graphs[(0, 1)]))
+        self.graphs["laplacian"] = laplacian
 
         if device == "cuda":
             self._cuda()
 
         # print(f'{self.pde_mask.sum() = }')
-        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_us_tot, self.N_component, device=self.device)
+        self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_component, device=self.device)
         self.N_deriv = self.deriv_calc.N_deriv
 
         # 3) Derivative boundary conditions. Linear equations N X derivs - value = 0
@@ -153,7 +161,7 @@ class UGraph(UBase):
             self.neumann_mask = torch.tensor(neum_mask)
 
             self._cuda_bc()
-            self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask, self.grad_mask, self.deriv_orders_bc, self.N_us_tot, N_component, device=self.device)
+            self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask, self.grad_mask, self.deriv_orders_bc, N_component, device=self.device)
 
 
     def get_subgraph(self):
@@ -179,7 +187,7 @@ class UGraph(UBase):
     def set_eval_deriv_calc(self, mask):
         assert self.deriv_calc_eval is None, "Already set eval deriv calc"
 
-        self.deriv_calc_eval = FinDerivCalcSPMV(self.graphs, mask, mask, self.N_us_tot, self.N_component, device=self.device)
+        self.deriv_calc_eval = FinDerivCalcSPMV(self.graphs, mask, mask, self.N_component, device=self.device)
 
     def get_eval_grads(self):
         grad_dict = self.deriv_calc_eval.derivative(self._us)
