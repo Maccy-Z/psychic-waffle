@@ -196,9 +196,21 @@ class UGraph(UBase):
     def get_grads(self):
         grad_dict = self.deriv_calc.derivative(self._us)
         return grad_dict
+
     def get_neuman_grads(self):
         grad_dict = self.deriv_calc_bc.derivative(self._us)
         return grad_dict
+
+    def get_grads_all(self):
+        grad_dict = self.deriv_calc.derivative(self._us)
+        bc_grad_dict = self.deriv_calc_bc.derivative(self._us)
+
+        full_grad_dict = {}
+        for name, deriv in grad_dict.items():
+            a = torch
+            full_grad_dict[name] = deriv
+
+        return full_grad_dict
 
     def _cuda(self):
         """ Move graph data to CUDA. """

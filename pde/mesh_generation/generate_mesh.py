@@ -109,7 +109,7 @@ def gen_points_full():
     return points, p_tags
 
 def gen_mesh_time(xmin, xmax, ymin, ymax):
-    min_area = 10.e-3
+    min_area = 5.e-3
     max_area = 10e-3
 
     circle_center = (0.5, 0.4)
