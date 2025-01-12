@@ -173,6 +173,8 @@ class TimePDEFunc:
         div_v_s[~self.V_star_mask] = 0
         div_v_s_ = div_v_s * self.rho / self.cfg_T.dt
         div_v_s_ = div_v_s_[self.P_pde_mask]
+        #TODO:
+        #div_v_s_ = torch.ones_like(div_v_s_) * -0.4
         self.P_solver.forward_solve(div_v_s_)
 
         # Update pressure
@@ -187,34 +189,38 @@ class TimePDEFunc:
         # v_new = v_star - self.cfg_T.dt / self.rho * grad_dP
         #dP_grads = self.p_graph_PDE.get_grads()
         dP_grads = self.p_graph_PDE.get_eval_grads()
-        grad_dP = torch.cat([dP_grads[(1, 0)], dP_grads[(0, 1)]], dim=1)
+        grad_dP = torch.cat([dP_grads[(1, 0)], dP_grads[(0, 1)]], dim=1)#[self.V_star_mask]
         v_star = self.v_star_graph.get_all_us_Xs()[0]
-        v_new = v_star - self.cfg_T.dt / self.rho * grad_dP
+        v_new = - self.cfg_T.dt / self.rho * grad_dP + v_star#[self.V_star_mask]
         v_new = v_new[self.V_star_mask]
         us_new = [v_new[:, 0], v_new[:, 1], P_new[:, 0]]
 
         """ Plotting """
         # torch.save({"grad_mask": self.P_grad_mask, "Xs": _X}, "graph.pth")
         if t > -0.0001:
-            # # Init divergence:
+
+            # Init divergence:
             # div_plot = torch.full_like(_X[:, 0], torch.nan)
             # div_plot[self.P_pde_mask] = div_v_s_ * 0.01
-            # plot_interp_graph(_X, div_plot, title=f"Initial divergence Step {t:.3g}")
+            div_plot = div_v_s
+            plot_interp_graph(_X, div_plot, title=f"Initial divergence Step {t:.3g}", lim=[-1, 0.25])
+
+            # exit(9)
             # #
-            # Laplacian new
-            resid = torch.full_like(_X[:, 0], torch.nan)
-            dP_grads = self.p_graph_PDE.get_grads()
-            laplacian_new = dP_grads["laplacian"].squeeze()
-            resid[self.P_pde_mask] = laplacian_new
+            # # Laplacian new
+            # resid = torch.full_like(_X[:, 0], torch.nan)
+            # dP_grads = self.p_graph_PDE.get_grads()
+            # laplacian_new = dP_grads["laplacian"].squeeze()
+            # resid[self.P_pde_mask] = laplacian_new
             # resid = resid.abs()
             # plot_interp_graph(_X, resid, title=f"laplacian new- Step {t:.3g}")
             #
-            # Laplacian Old
-            resid = torch.full_like(_X[:, 0], torch.nan)
-            dP_grads = self.p_graph_PDE.get_grads()
-            laplacian = dP_grads[(2, 0)].squeeze() + dP_grads[(0, 2)].squeeze()
-            resid[self.P_pde_mask] = laplacian
-            resid = resid.abs()
+            # # Laplacian Old
+            # resid = torch.full_like(_X[:, 0], torch.nan)
+            # dP_grads = self.p_graph_PDE.get_grads()
+            # laplacian = dP_grads[(2, 0)].squeeze() + dP_grads[(0, 2)].squeeze()
+            # resid[self.P_pde_mask] = laplacian
+            # resid = resid.abs()
             # plot_interp_graph(_X, resid, title=f"laplacian old- Step {t:.3g}")
 
             # # P PDE residual
@@ -232,23 +238,23 @@ class TimePDEFunc:
             # self.p_graph_PDE.set_grid(P_new)
             # _p, _X = self.p_graph_PDE.get_all_us_Xs()
             # plot_interp_graph(_X, _p[:, 0], title=f"P new- Step {t}")
-            #
-            # # P grad
-            # grad_dP_ = torch.full_like(_X, torch.nan)
-            # dP_grads = self.p_graph_PDE.get_eval_grads()
-            # grad_dP_ = torch.cat([dP_grads[(1, 0)], dP_grads[(0, 1)]], dim=1)
-            # # grad_dP_[self.P_pde_mask] = grad_dP
-            # plot_interp_graph(_X, grad_dP_[:, 0], title=f"grad dP_x- Step {t}")
-            # plot_interp_graph(_X, grad_dP_[:, 1], title=f"grad dP_y- Step {t}")
+            # #
+            # P grad
+            dP_grads = self.p_graph_PDE.get_eval_grads()
+            grad_dP_ = torch.cat([dP_grads[(1, 0)], dP_grads[(0, 1)]], dim=1)
+            # grad_dP_[self.P_pde_mask] = grad_dP
+            plot_interp_graph(_X, grad_dP_[:, 0], title=f"grad dP_x- Step {t}")
+            plot_interp_graph(_X, grad_dP_[:, 1], title=f"grad dP_y- Step {t}")
 
+            # # Plotting manual laplacian
             dP_grads = self.p_graph_PDE.get_eval_grads()
             dPdx, dPdy = dP_grads[(1, 0)], dP_grads[(0, 1)]
             dPdxdy = torch.cat([dPdx, dPdy], dim=1)
-            d2Pdx2 = self.p_graph_PDE.deriv_calc_eval.derivative(dPdx)[(1, 0)]
-            d2Pdy2 = self.p_graph_PDE.deriv_calc_eval.derivative(dPdy)[(0, 1)]
-            est_laplace = d2Pdx2 +d2Pdy2 #+
-            est_laplace = est_laplace.squeeze()
-            est_laplace[~self.P_pde_mask] = torch.nan
+            # d2Pdx2 = self.p_graph_PDE.deriv_calc_eval.derivative(dPdx)[(1, 0)]
+            # d2Pdy2 = self.p_graph_PDE.deriv_calc_eval.derivative(dPdy)[(0, 1)]
+            # est_laplace = d2Pdx2 +d2Pdy2 #+
+            # est_laplace = est_laplace.squeeze()
+            # est_laplace[~self.P_pde_mask] = torch.nan
             # plot_interp_graph(_X, est_laplace, title=f"Estimated laplacian- Step {t}")
 
             # plot_interp_graph(_X, div_v_s_est, title=f"Estimated divergence- Step {t}")
@@ -265,9 +271,9 @@ class TimePDEFunc:
 
             #self.v_star_graph.set_grid(v_n_1[self.V_star_mask].clone())
             self.v_star_graph._us = v_n_1.clone()
-            _u, _ = self.v_star_graph.get_all_us_Xs()
-            plot_interp_graph(_X, _u[:, 0], title=f"Vx- Step {t:.3g}")
-            plot_interp_graph(_X, _u[:, 1], title=f"Vy- Step {t:.3g}")
+            # _u, _ = self.v_star_graph.get_all_us_Xs()
+            # plot_interp_graph(_X, _u[:, 0], title=f"Vx- Step {t:.3g}")
+            # plot_interp_graph(_X, _u[:, 1], title=f"Vy- Step {t:.3g}")
 
             # v_star_grad = self.v_star_graph.get_grads()
             # div_v_s = v_star_grad[(1, 0)][..., 0] +v_star_grad[(0, 1)][..., 1] #+
@@ -275,12 +281,12 @@ class TimePDEFunc:
             # plot_interp_graph(_X, div_v_s, title=f"V_star div- Step {t}")
 
             # Final divergence
-            self.v_star_graph.set_grid(v_new)
+            #self.v_star_graph.set_grid(v_new)
             v_star_grad = self.v_star_graph.get_grads()
             div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
             div_v_s[~self.V_star_mask] = torch.nan
             # div_v_s[~self.P_pde_mask] = 0
-            plot_interp_graph(_X, div_v_s, title=f"Final divergence- Step {t}")
+            plot_interp_graph(_X, div_v_s, title=f"Final divergence- Step {t}", lim=[-1, 1])
 
             print(self.rho / self.cfg_T.dt)
             exit(4)
