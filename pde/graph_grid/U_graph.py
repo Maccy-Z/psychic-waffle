@@ -14,12 +14,13 @@ class UTemp(UBase):
     _us: Tensor   # [N_us_tot, N_component]                   # Value at node
     deriv_calc: FinDerivCalcSPMV
 
-    def __init__(self, Xs, us, deriv_calc, pde_mask, grad_mask):
+    def __init__(self, Xs, us, deriv_calc, pde_mask, grad_mask, deriv_calc_eval):
         self._Xs = Xs
         self._us = us
         self.deriv_calc = deriv_calc
         self.pde_mask = pde_mask
         self.grad_mask = grad_mask
+        self.deriv_calc_eval = deriv_calc_eval
 
     def reset(self):
         self._us = torch.zeros_like(self._us)
@@ -35,7 +36,11 @@ class UTemp(UBase):
         """
         Set grid to new values. Used for Jacobian computation.
         """
-        self._us[self.grad_mask] = new_us.flatten()
+        self._us[self.grad_mask] = new_us
+
+    def get_eval_grads(self):
+        grad_dict = self.deriv_calc_eval.derivative(self._us)
+        return grad_dict
 
 class UGraph(UBase):
     """ Holder for graph structure. """
@@ -102,11 +107,21 @@ class UGraph(UBase):
         self.pde_mask = torch.tensor([T.PDE in P.point_type for P in setup_dict.values()])
         # U requires gradient for normal or ghost points.
         self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in setup_dict.values()])
+        # 1.2) Derivative BC properties
+        deriv_orders, deriv_val, neum_mask = {}, [], []
+        for point_num, point in setup_dict.items():
+            if T.DERIV in point.point_type:
+                derivs = point.derivatives
 
-
+                deriv_orders[point_num] = derivs
+                deriv_val.append([d.value for d in derivs])
+                neum_mask.append(True)
+            else:
+                neum_mask.append(False)
+        self.neumann_mode = len(deriv_val) > 0
+        # 1.3) Set up initial node values
         self._Xs = torch.stack([point.X for point in setup_dict.values()]).to(torch.float32)
         self._us = torch.tensor([point.value for point in setup_dict.values()], dtype=torch.float32)
-
 
         # 2) Compute finite difference stencils / graphs.
         # Each gradient type has its own stencil and graph.
@@ -118,32 +133,22 @@ class UGraph(UBase):
                 edge_idx, fd_weights = calc_coeff(setup_dict, grad_acc, degree)
                 self.graphs[degree] = DerivGraph(edge_idx, fd_weights, shape=(self.N_us_tot, self.N_us_tot))
 
-        # # 2.1) Add additional stencils
-        # divergence = DerivGraph.add(self.graphs[(1, 0)], self.graphs[(0, 1)])
-        laplacian = DerivGraph.add(DerivGraph.compose(self.graphs[(1, 0)], self.graphs[(1, 0)]),
-                                   DerivGraph.compose(self.graphs[(0, 1)], self.graphs[(0, 1)]))
+        # 2.1) Add additional stencils
+        #edge_mask = torch.tensor([point.edge_mask for point in setup_dict.values()], dtype=torch.float32)
+        edge_mask = torch.ones(len(neum_mask))
+        #edge_mask = 1 - torch.tensor(neum_mask, dtype=torch.float32)
+        laplacian = DerivGraph.add(DerivGraph.compose(self.graphs[(1, 0)], self.graphs[(1, 0)], mask=edge_mask),
+                                   DerivGraph.compose(self.graphs[(0, 1)], self.graphs[(0, 1)], mask=edge_mask)
+                                   )
         self.graphs["laplacian"] = laplacian
 
         if device == "cuda":
             self._cuda()
 
-        # print(f'{self.pde_mask.sum() = }')
         self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.grad_mask, self.N_component, device=self.device)
         self.N_deriv = self.deriv_calc.N_deriv
 
         # 3) Derivative boundary conditions. Linear equations N X derivs - value = 0
-        deriv_orders, deriv_val, neum_mask = {}, [], []
-        for point_num, point in setup_dict.items():
-            if T.DERIV in point.point_type:
-                derivs = point.derivatives
-
-                deriv_orders[point_num] = derivs
-                deriv_val.append([d.value for d in derivs])
-                neum_mask.append(True)
-            else:
-                neum_mask.append(False)
-
-        self.neumann_mode = len(deriv_val) > 0
         if self.neumann_mode:
             # 3.1) Compute jacobian permutation
             jacob_dict = {i: point for i, point in enumerate(v for v in setup_dict.values() if T.GRAD in v.point_type)}
@@ -165,7 +170,8 @@ class UGraph(UBase):
 
 
     def get_subgraph(self):
-        subraph_copy = UTemp(self._Xs.clone(), self._us.clone(), self.deriv_calc, self.pde_mask.clone())
+        subraph_copy = UTemp(self._Xs.clone(), self._us.clone(), self.deriv_calc, self.pde_mask.clone(),
+                             self.grad_mask.clone(), self.deriv_calc_eval)
         return subraph_copy
 
     def reset(self):

@@ -165,7 +165,7 @@ def test_grid(xmin: float, xmax: float, N: Tensor, device='cpu'):
 def plot_interp_graph(points, values, resolution=1000, title='Nearest Neighbor Interpolation', lim=None):
     # Create a grid over the coordinate space
     # Convert points and values to numpy arrays if they aren't already
-    points, values = points.detach().cpu().numpy(), values.detach().cpu().numpy()
+    points, values = points.detach().cpu().numpy(), values.detach().squeeze().cpu().numpy()
     if lim is not None:
         values = np.clip(values, lim[0], lim[1])
     # Automatically determine the range for x and y
@@ -180,7 +180,10 @@ def plot_interp_graph(points, values, resolution=1000, title='Nearest Neighbor I
 
     # Plot the interpolated data
     plt.figure(figsize=(16, 16))
-    plt.imshow(grid_z.T, extent=(x_min, x_max, y_min, y_max), origin='lower', cmap='viridis')
+    if lim is not None:
+        plt.imshow(grid_z.T, extent=(x_min, x_max, y_min, y_max), origin='lower', cmap='viridis', vmin=lim[0], vmax=lim[1])
+    else:
+        plt.imshow(grid_z.T, extent=(x_min, x_max, y_min, y_max), origin='lower', cmap='viridis')
     plt.colorbar()
 
     # Scatter plot of the original points

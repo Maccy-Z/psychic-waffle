@@ -102,8 +102,6 @@ def compute_D_vector(alpha, k):
     D_value = torch.exp(torch.lgamma(k[0] + 1) + torch.lgamma(k[1] + 1))
     D[idx] = D_value
 
-    #print(f'D = {D}')
-
     return D
 
 
@@ -164,7 +162,7 @@ def fin_diff_weights(center, points, derivative_order, m, method: diff_options, 
 
     # Step 5: Solve the linear system A_T w = D.
     # Step 5.1: Weight magnitude of w, for underdetermined system / extra points. (Error formula)
-    weights = torch.norm(deltas, p=2, dim=1) ** (m + 1)
+    weights = torch.norm(deltas, p=2, dim=1) ** (m + 2)
     weights = weights + eps
 
     if method == "abs_weight_norm":
@@ -187,8 +185,6 @@ def fin_diff_weights(center, points, derivative_order, m, method: diff_options, 
     if max_err > atol:
         raise ConvergenceError(status, f'Error too large: {max_err.item() = :.3g}')
 
-    #sq_res = w.unsqueeze(0) @ torch.diag(weights) @ w
-    #abs_res = w.abs() @ weights
 
     return w, {'status': status, 'max_err': max_err,}
                #'mean_err': err.abs().mean(), 'abs_res': lambda: w.abs() @ weights, 'sq_res': lambda: w.unsqueeze(0) @ torch.diag(weights) @ w}
@@ -211,13 +207,6 @@ def _calc_coeff_single(j, X, diff_order, diff_acc, N_us_tot, min_points, max_poi
         else:
             break
     else:
-        # print("Error reached")
-        # save_dict = {"X": X, "neigh_Xs": neigh_Xs, "err": err}
-        # import pickle
-        # pickle.dump(save_dict, open(f"save.pkl", "wb"))
-        # exit("Error")
-        # continue
-
         c_print(f"Using looser tolerance for point {j}, {X=}", color="bright_magenta")
         # Using Try again with looser tolerance, probably from fp64 -> fp32 rounding.
         try:
@@ -265,7 +254,6 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
     min_points = min(50, N_us_tot)
     max_points = min(251, N_us_tot + 1)
 
-    #pde_dict = {idx: point for idx, point in point_dict.items() if P_Types.GRAD in point.point_type}
     pde_dict = {idx: point for idx, point in point_dict.items()}
 
     mp_args = [(j, point.X, diff_order, diff_acc, N_us_tot, min_points, max_points) for j, point in pde_dict.items()]

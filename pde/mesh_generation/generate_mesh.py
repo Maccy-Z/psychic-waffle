@@ -108,9 +108,12 @@ def gen_points_full():
     #plot_mesh(mesh)
     return points, p_tags
 
-def gen_mesh_time(xmin, xmax, ymin, ymax):
-    min_area = 5.e-3
-    max_area = 10e-3
+def gen_mesh_time(xmin, xmax, ymin, ymax, areas=None):
+    if areas is None:
+        min_area = 5.e-3
+        max_area = 10e-3
+    else:
+        min_area, max_area = areas
 
     circle_center = (0.5, 0.4)
     circle_radius = 0.1

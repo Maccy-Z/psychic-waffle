@@ -137,10 +137,10 @@ class DerivGraph:
         )
 
     @staticmethod
-    def compose(D1, D2):
+    def compose(D1, D2, mask=None):
         """
         Return a new DerivGraph whose operator is the composition (matrix multiplication) D1 * D2.
-        Equivalently, if these operators act like M1 and M2, the new one is M1 @ M2.
+        For sequential operators M1 and M2, the new one is M1 @ (eye[Mask]) @ M2.
 
         Requirements:
           - The inner dimensions must match: D1.shape[1] == D2.shape[0]
@@ -151,12 +151,17 @@ class DerivGraph:
             f"D1 is {D1.shape}, D2 is {D2.shape}."
         )
         assert D1.device == D2.device, "Devices must match for composition."
+        if mask is not None:
+            assert mask.shape[0] == D1.shape[0], "Mask must have same number of rows as D1."
+            mask = torch.diag(mask).to_sparse_coo().to(D1.device)
 
         # Build PyTorch sparse COO for each
         A1 = D1.coo()
         A2 = D2.coo()
 
         # Sparse matrix multiplication: result has shape (D1.shape[0], D2.shape[1])
+        if mask is not None:
+            A1 = torch.sparse.mm(A1, mask)
         A12 = torch.sparse.mm(A1, A2)
         A12 = A12.coalesce()
 

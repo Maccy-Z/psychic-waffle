@@ -8,25 +8,36 @@ from pde.graph_grid.graph_store import DerivGraph, Point, Deriv, T_Point
 from pde.graph_grid.graph_store import P_Types as T, P_TimeTypes as TT
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
-from pde.graph_grid.U_graph import UTemp
 from pde.graph_grid.graph_utils import plot_points
-# class UTemp(UBase):
-#     _Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
-#     _us: Tensor   # [N_us_tot, N_component]                   # Value at node
-#     deriv_calc: FinDerivCalcSPMV
-#
-#     def __init__(self, Xs, us, deriv_calc, pde_mask, grad_mask):
-#         self._Xs = Xs
-#         self._us = us
-#         self.deriv_calc = deriv_calc
-#         self.pde_mask = pde_mask
-#         self.grad_mask = grad_mask
-#
-#     def reset(self):
-#         self._us = torch.zeros_like(self._us)
-#
-#     def _cuda(self):
-#         pass
+
+class UTemp(UBase):
+    _Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
+    _us: Tensor   # [N_us_tot, N_component]                   # Value at node
+    deriv_calc: FinDerivCalcSPMV
+
+    def __init__(self, Xs, us, deriv_calc, pde_mask, grad_mask):
+        self._Xs = Xs
+        self._us = us
+        self.deriv_calc = deriv_calc
+        self.pde_mask = pde_mask
+        self.grad_mask = grad_mask
+
+    def reset(self):
+        self._us = torch.zeros_like(self._us)
+
+    def get_grads(self):
+        grad_dict = self.deriv_calc.derivative(self._us)
+
+        return grad_dict
+    def _cuda(self):
+        pass
+
+    def set_grid(self, new_us):
+        """
+        Set grid to new values. Used for Jacobian computation.
+        """
+        print(f'{self._us.shape = }, {self.grad_mask.sum() = }, {new_us.flatten().shape = }')
+        self._us[self.grad_mask] = new_us.flatten()
 
 class UGraphTime(UBase):
     """ Holder for graph structure. """
