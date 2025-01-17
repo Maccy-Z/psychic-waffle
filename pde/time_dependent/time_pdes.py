@@ -48,7 +48,7 @@ def mesh_graph(cfg):
         else:
             raise ValueError(f"Unknown tag {tag}")
 
-    u_graph_time = UGraphTime(setup_T, N_component=N_comp, grad_acc=3, device=cfg.DEVICE)
+    u_graph_time = UGraphTime(setup_T, N_component=N_comp, grad_acc=4, device=cfg.DEVICE)
     # plot_points(u_graph_time._Xs, u_graph_time.grad_mask[:, 2], title="grad mask")
     # print(f'{ u_graph_time.grad_mask[:, 0].sum() = }')
     # exit(4)
@@ -78,7 +78,7 @@ def mesh_graph(cfg):
             raise ValueError(f"Unknown tag {tag}")
 
 
-    u_graph_pde = UGraph(setup_pde, N_component=1, grad_acc=3, device=cfg.DEVICE)
+    u_graph_pde = UGraph(setup_pde, N_component=1, grad_acc=2, device=cfg.DEVICE)
     # plot_points(u_graph_pde._Xs, u_graph_pde.grad_mask, title="grad mask")
     # plot_points(u_graph_pde._Xs, u_graph_pde.pde_mask, title="pde mask")
     # plot_points(u_graph_pde._Xs, u_graph_pde.neumann_mask, title="neum mask")
@@ -188,7 +188,7 @@ class TimePDEFunc:
         self.v_star_graph.set_grid(v_star)
 
         # Solve pressure equation multiple times
-        for i in range(10):
+        for i in range(1):
             # Pressure correction: laplacian(dP) = rho/dt div(v_star)
             v_star_grad = self.v_star_graph.get_grads()
             div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
@@ -200,8 +200,7 @@ class TimePDEFunc:
 
             div_plot = torch.full_like(_X[:, 0], torch.nan)
             div_plot[self.P_pde_mask] = div_v_s_ * 0.01
-            plot_interp_graph(_X, div_plot, title=f"Divergence Step {i:.3g}", lim=[-1, 1])
-
+            #plot_interp_graph(_X, div_plot, title=f"Divergence Step {i:.3g}", lim=[-1, 1])
 
             self.P_solver.forward_solve([div_v_s_, self.grad_I[0], self.grad_I[1]])
             # Update pressure
@@ -223,15 +222,15 @@ class TimePDEFunc:
 
             self.v_star_graph.set_grid(v_new_)
 
-        exit(9)
+        # exit(9)
         P_new = p_old[self.P_grad_mask]
         self.p_graph_PDE.set_grid(P_new)
 
-        #us_new = [v_new_[:, 0], v_new_[:, 1], P_new[:, 0]]
+        us_new = [v_new_[:, 0], v_new_[:, 1], P_new[:, 0]]
 
         """ Plotting """
         # torch.save({"grad_mask": self.P_grad_mask, "Xs": _X}, "graph.pth")
-        if t > -0.0001:
+        if t > 0.0109:
             plot_graph = self.v_star_graph
             #plot_graph.reset()
 

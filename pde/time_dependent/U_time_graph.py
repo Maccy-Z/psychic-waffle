@@ -36,7 +36,6 @@ class UTemp(UBase):
         """
         Set grid to new values. Used for Jacobian computation.
         """
-        print(f'{self._us.shape = }, {self.grad_mask.sum() = }, {new_us.flatten().shape = }')
         self._us[self.grad_mask] = new_us.flatten()
 
 class UGraphTime(UBase):

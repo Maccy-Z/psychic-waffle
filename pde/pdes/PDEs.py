@@ -66,7 +66,7 @@ class PressureNS(PDEFunc):
         resid = grad_Ix * dpdx + grad_Iy * dpdy + 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
         #resid = 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
         #resid = laplacian - rhs_val
-        #resid =  0.9 * grad_Ix * dpdx + grad_Iy * dpdy +  (d2pdx2 + d2pdy2) - rhs_val
+        #resid =  0.5 * (grad_Ix * dpdx + grad_Iy * dpdy) +  (d2pdx2 + d2pdy2) - rhs_val
 
 
         return resid

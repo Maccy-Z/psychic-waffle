@@ -47,25 +47,25 @@ class SolverNewton:
             # max_err = torch.max(torch.abs(error)).item()
             # print(f'{max_err = }')
             self.residuals = residuals
-            global I
-            I += 1
-            logging.debug(f'{I = }')
-            if I == 100:
-                print(I)
-                error = jacobian @ deltas - residuals
-                max_err = torch.max(torch.abs(error)).item()
-
-                _mask = torch.zeros(self.sol_grid.grad_mask.sum()).cuda().bool()
-                _pde_mask = self.sol_grid.pde_mask[self.sol_grid.grad_mask]
-                _mask[_pde_mask] = 1
-
-                print(self.sol_grid.get_us_grad().squeeze())
-
-                save_dict = {"jacobian": jacobian, "residuals": residuals, "aux_input": aux_input, "mask": _mask}
-                torch.save(save_dict, "jacobian_residuals.pt")
-
-                print(f'{max_err = }')
-                exit("Newton Solver")
+            # global I
+            # I += 1
+            # logging.debug(f'{I = }')
+            # if I == 100:
+            #     print(I)
+            #     error = jacobian @ deltas - residuals
+            #     max_err = torch.max(torch.abs(error)).item()
+            #
+            #     _mask = torch.zeros(self.sol_grid.grad_mask.sum()).cuda().bool()
+            #     _pde_mask = self.sol_grid.pde_mask[self.sol_grid.grad_mask]
+            #     _mask[_pde_mask] = 1
+            #
+            #     print(self.sol_grid.get_us_grad().squeeze())
+            #
+            #     save_dict = {"jacobian": jacobian, "residuals": residuals, "aux_input": aux_input, "mask": _mask}
+            #     torch.save(save_dict, "jacobian_residuals.pt")
+            #
+            #     print(f'{max_err = }')
+            #     exit("Newton Solver")
 
             deltas *= self.lr
             self.sol_grid.update_grid(deltas)
