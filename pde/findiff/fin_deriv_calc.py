@@ -64,6 +64,7 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         self.grad_mask = grad_mask
         self.device = device
 
+        print(f'{self.eq_mask.shape = }')
         N_us_tot = self._check(fd_graphs)
 
         self.fd_spms = {}       # shape = [N_deriv], [N_eqs, N_us_tot]

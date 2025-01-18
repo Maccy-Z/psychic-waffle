@@ -46,7 +46,7 @@ class SolverNewton:
             # error = jacobian @ deltas - residuals
             # max_err = torch.max(torch.abs(error)).item()
             # print(f'{max_err = }')
-            self.residuals = residuals
+            # self.residuals = residuals
             # global I
             # I += 1
             # logging.debug(f'{I = }')

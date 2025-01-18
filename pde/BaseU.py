@@ -13,7 +13,7 @@ class UBase(abc.ABC):
     _us: Tensor  # Value of u at all points.
     _Xs: Tensor  # Coordinates of all points. Shape = [N_total, 2]
 
-    grad_mask: Tensor  # Which us have gradient. Shape = [N_u_grad]
+    updt_mask: Tensor  # Which us have gradient. Shape = [N_u_grad]
     pde_mask: Tensor  # Which PDEs are used to fit us. Automatically disregard extra points. Shape = [N_pde, ...]
     u_mask: tuple[slice, ...]  # Real us points [N_u_real]
 
@@ -36,19 +36,19 @@ class UBase(abc.ABC):
         us -> us - deltas
         """
         deltas = deltas.view(self.N_component, self.N_us_grad).T
-        self._us[self.grad_mask] -= deltas
+        self._us[self.updt_mask] -= deltas
 
     def set_grid(self, new_us):
         """
         Set grid to new values. Used for Jacobian computation.
         """
-        self._us[self.grad_mask] = new_us
+        self._us[self.updt_mask] = new_us
 
     def get_us_mask(self):
         """
         Return us, and mask of which elements are trainable. Used for masking Jacobian equations.
         """
-        return self._us, self.grad_mask, self.pde_mask
+        return self._us, self.updt_mask, self.pde_mask
 
     def get_real_us_Xs(self):
         """ Return all actual grid points, excluding fake boundaries. """
@@ -60,7 +60,7 @@ class UBase(abc.ABC):
 
     def get_us_grad(self):
         """ Return us with gradients. """
-        return self._us[self.grad_mask]
+        return self._us[self.updt_mask]
 
     def get_us_Xs_pde(self):
         """ Return us and Xs for PDE points. """
@@ -72,7 +72,7 @@ class UBase(abc.ABC):
         """
 
         us_all = torch.clone(self._us)
-        us_all[self.grad_mask] = us_grad
+        us_all[self.updt_mask] = us_grad
 
         return us_all
 

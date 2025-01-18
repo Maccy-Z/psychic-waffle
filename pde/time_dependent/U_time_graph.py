@@ -47,8 +47,8 @@ class UGraphTime(UBase):
     deriv_val: Tensor # [N_deriv_BC*N_component]            # Derivative values at nodes for BC
 
     pde_mask: Tensor  # [N_us_tot]                   # Where dU/dt is enforced. Bool
-    grad_mask: Tensor  # [N_us_tot, N_component]                   # Nodes that need to be updated. Bool
-    neumann_mask: Tensor  # [N_us_tot]                   # Mask for derivative BC nodes. Bool
+    updt_mask: Tensor  # [N_us_tot, N_component]                   # Nodes that need to be updated. Bool
+    neumann_mask: Tensor  # [N_us_tot, N_component]                   # Mask for derivative BC nodes. Bool
     neumann_mode: bool    # True if there are derivative BCs.
 
     N_us_tot: int           # Total number of points
@@ -64,8 +64,8 @@ class UGraphTime(UBase):
         # neighbors: list[Tensor]     # [N_us_tot, N_neigh]           # Neighborhood for each node
 
     deriv_calc: FinDerivCalcSPMV
-    deriv_orders_bc: dict[int, Deriv]  # [N_deriv_BC, 2]     # Derivative order for each derivative BC
-
+    deriv_orders_bc: dict[int, list[Deriv]]  # [N_deriv_BC, 2]     # Derivative order for each derivative BC
+    deriv_calc_bc: NeumanBCCalc
     row_perm: Tensor # [N_us_grad] # Permutation for Jacobian matrix
 
     def _check(self, setup_dict):
@@ -92,11 +92,17 @@ class UGraphTime(UBase):
         # 1) Reorder points. Redefines node values.
         sorted_points = sorted(setup_dict.values(), key=lambda x: x.X[1])
         self.setup_dict = {i: point for i, point in enumerate(sorted_points)}
-
+        self._Xs = torch.stack([point.X for point in self.setup_dict.values()]).to(torch.float32)
+        self._us = torch.tensor([point.init_val for point in self.setup_dict.values()], dtype=torch.float32)
         # 1.1) Masks for points that need updating.
-        grad_mask = [[TT.FIXED not in P_type for P_type in P_comps.point_type]
+        grad_mask = [[TT.NORMAL in P_type for P_type in P_comps.point_type]
                           for P_comps in self.setup_dict.values()]
-        self.grad_mask = torch.tensor(grad_mask, dtype=torch.bool)
+        self.updt_mask = torch.tensor(grad_mask, dtype=torch.bool)
+        self.N_update = self.updt_mask.sum().item()
+        neumann_mask = [[TT.EXIT in P_type for P_type in P_comps.point_type]
+                            for P_comps in self.setup_dict.values()]
+        self.neumann_mask = torch.tensor(neumann_mask, dtype=torch.bool)
+        self.neumann_mode = self.neumann_mask.sum().item() > 0
 
         # 1.2) Masks for points updated using du/dt ODE
         grad_setup_dict = {}
@@ -110,27 +116,8 @@ class UGraphTime(UBase):
         pde_mask = [(T.GRAD in P.point_type) for P in grad_setup_dict.values()]
         self.pde_mask = torch.tensor(pde_mask, dtype=torch.bool)
 
-
-        self.N_update = self.grad_mask.sum().item()
-
         # 2) Compute finite difference stencils / graphs for points that require fitting
-        # Each gradient type has its own stencil and graph.
-        diff_degrees = gen_multi_idx_tuple(max_degree)[1:] # 0th order is just itself.
-        self.graphs = {}
-        for degree in diff_degrees:
-            c_print(f"Generating graph for degree {degree}", color="black")
-            with Timer(text="Time to solve: : {:.4f}"):
-                edge_idx, fd_weights = calc_coeff(grad_setup_dict, grad_acc, degree)
-                self.graphs[degree] = DerivGraph(edge_idx, fd_weights, shape=(self.N_us_tot, self.N_us_tot))
-
-        self._Xs = torch.stack([point.X for point in self.setup_dict.values()]).to(torch.float32)
-        self._us = torch.tensor([point.init_val for point in self.setup_dict.values()], dtype=torch.float32)
-
-        # PDE is enforced on normal points.
-        #self.pde_mask = torch.tensor([T.PDE in P.point_type for P in self.setup_dict.values()])
-        # U requires gradient for normal or ghost points.
-        # self.grad_mask = torch.tensor([T.GRAD in P.point_type  for P in self.setup_dict.values()])
-
+        self.graphs = self._gen_graph(grad_setup_dict, grad_acc, max_degree)
 
         if device == "cuda":
             self._cuda()
@@ -138,7 +125,37 @@ class UGraphTime(UBase):
         self.deriv_calc = FinDerivCalcSPMV(self.graphs, self.pde_mask, self.pde_mask, self.N_component, device=self.device)
         self.N_deriv = self.deriv_calc.N_deriv
 
-        self.neumann_mode = False
+        # 3) Derivative boundary conditions. Linear equations N X derivs - value = 0
+        if self.neumann_mode:
+            deriv_orders, deriv_val = {}, []
+            for point_num, point in setup_dict.items():
+                if TT.EXIT in point.point_type:
+                    derivs = point.derivatives
+                    deriv_orders[point_num] = derivs
+                    deriv_val.append([d.value for d in derivs])
+            self.deriv_orders_bc = deriv_orders
+            self.deriv_val = torch.tensor(deriv_val, dtype=torch.float32)
+            self.neumann_mask = torch.tensor(neumann_mask, dtype=torch.bool)
+
+            self._cuda_bc()
+            self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask[:, 0], self.updt_mask[:, 0],
+                                              self.deriv_orders_bc, N_component, device=self.device)
+
+    def _cuda_bc(self):
+        self.deriv_val = self.deriv_val.cuda(non_blocking=True)
+        self.neumann_mask = self.neumann_mask.cuda(non_blocking=True)
+
+    def _gen_graph(self, setup_dict, grad_acc, max_degree):
+        """ Generate graph for each gradient type. Each gradient type has its own stencil and graph."""
+        diff_degrees = gen_multi_idx_tuple(max_degree)[1:]  # 0th order is just itself.
+        graphs = {}
+        for degree in diff_degrees:
+            c_print(f"Generating graph for degree {degree}", color="black")
+            with Timer(text="Time to solve: : {:.4f}"):
+                edge_idx, fd_weights = calc_coeff(setup_dict, grad_acc, degree)
+                graphs[degree] = DerivGraph(edge_idx, fd_weights, shape=(self.N_us_tot, self.N_us_tot))
+        return graphs
+
 
     def get_subgraph(self, components=None, all_grads=False) -> UTemp:
         """ Make copy of subgraph with only certain components. """
@@ -148,19 +165,19 @@ class UGraphTime(UBase):
         if all_grads:
             mask = torch.ones_like(self.pde_mask).bool()
         else:
-            mask = self.grad_mask
+            mask = self.updt_mask
 
         N_component = len(components)
         deriv_calc = FinDerivCalcSPMV(self.graphs, mask, mask, N_component, device=self.device)
         us_clone = self._us[:, components].clone()
-        subraph_copy = UTemp(self._Xs.clone(), us_clone, deriv_calc, self.pde_mask, self.grad_mask[:, components])
+        subraph_copy = UTemp(self._Xs.clone(), us_clone, deriv_calc, self.pde_mask, self.updt_mask[:, components])
 
         return subraph_copy
 
     def reset(self):
         self._us = torch.zeros_like(self._us)
 
-    def set_bc(self, dirich_bc=None, neuman_bc=None):
+    def set_bc(self, dirich_bc=None):
         """ Set boundary conditions. """
         if dirich_bc is not None:
             dirich_bc = dirich_bc.to(self.device, non_blocking=True)
@@ -168,10 +185,10 @@ class UGraphTime(UBase):
             assert dirich_bc.sum() == self.N_dirich, "Dirichlet BC must match number of Dirichlet points."
             self._us[self.dirich_mask] = dirich_bc
 
-        # if neuman_bc is not None:
-        #     neuman_bc = neuman_bc.to(self.device, non_blocking=True)
-        #     self.deriv_val = neuman_bc
-        #     self.neumann_mask = torch.tensor([True for _ in range(len(neuman_bc))], device=self.device)
+        if self.neumann_mode is not None:
+            bc_deriv = self.deriv_calc_bc.derivative(self._us)
+
+        return bc_deriv
 
     def get_grads(self):
         grad_dict = self.deriv_calc.derivative(self._us)
@@ -184,7 +201,7 @@ class UGraphTime(UBase):
         # print(f'{self.grad_mask.shape = }')
 
 
-        us_fit = [(self._us[:, i][self.grad_mask[:, i]]).unsqueeze(-1) for i in range(self.N_component)]
+        us_fit = [(self._us[:, i][self.updt_mask[:, i]]).unsqueeze(-1) for i in range(self.N_component)]
         return us_fit
         # [print(us_fit[i].shape) for i in range(self.N_component)]
         # assert False
@@ -197,7 +214,7 @@ class UGraphTime(UBase):
         Set grid to new values.
         new_us.shape = [N_us_grad_total]
         """
-        self._us[self.grad_mask] = new_us
+        self._us[self.updt_mask] = new_us
 
     def set_grid_irreg(self, new_us):
         """
@@ -205,7 +222,7 @@ class UGraphTime(UBase):
         new_us.shape = [N_component][N_us_grad_comp]
         """
         for i, us in enumerate(new_us):
-            self._us[self.grad_mask[:, i], i] = us
+            self._us[self.updt_mask[:, i], i] = us
         #self._us = new_us
 
     def _cuda(self):
@@ -213,7 +230,7 @@ class UGraphTime(UBase):
         self._us = self._us.cuda(non_blocking=True)
         self._Xs = self._Xs.cuda(non_blocking=True)
 
-        self.grad_mask = self.grad_mask.cuda(non_blocking=True)
+        self.updt_mask = self.updt_mask.cuda(non_blocking=True)
         self.pde_mask = self.pde_mask.cuda(non_blocking=True)
         #self.dirich_mask = self.dirich_mask.cuda(non_blocking=True)
         #self.grad_mask = self.grad_mask.cuda(non_blocking=True)

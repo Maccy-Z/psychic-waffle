@@ -32,6 +32,7 @@ class P_TimeTypes(Flag):
     MANUAL = auto()  # Manually set value. No fitting required.
 
     NORMAL = auto()  # Normal point. Fitting required.
+    EXIT = auto()  # Exit point. Fit Neumann boundary = 0.
 
 @dataclass
 class Deriv:
@@ -73,7 +74,7 @@ class T_Point:
     point_type: list[P_TimeTypes]   # [N_component]
     X: torch.Tensor
     init_val: float|list[float]
-
+    derivatives: list[Deriv] = None
 
 import torch
 

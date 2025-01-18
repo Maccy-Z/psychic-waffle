@@ -58,13 +58,13 @@ class PressureNS(PDEFunc):
                 laplacian(p) = RHS(x)
          """
         # p = u_dus[0]
-        dpdx, dpdy = u_dus[1], u_dus[2]
+        #dpdx, dpdy = u_dus[1], u_dus[2]
         d2pdx2, d2pdxdy, d2pdy2 = u_dus[3], u_dus[4], u_dus[5]
         laplacian = u_dus[6]
         rhs_val, grad_Ix, grad_Iy = aux_input
 
-        resid = grad_Ix * dpdx + grad_Iy * dpdy + 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
-        #resid = 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
+        #resid = grad_Ix * dpdx + grad_Iy * dpdy + 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
+        resid = 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
         #resid = laplacian - rhs_val
         #resid =  0.5 * (grad_Ix * dpdx + grad_Iy * dpdy) +  (d2pdx2 + d2pdy2) - rhs_val
 

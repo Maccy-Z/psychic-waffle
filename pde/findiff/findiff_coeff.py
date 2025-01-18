@@ -254,7 +254,7 @@ def calc_coeff(point_dict: dict[int, Point], diff_acc: int, diff_order: tuple[in
     min_points = min(50, N_us_tot)
     max_points = min(251, N_us_tot + 1)
 
-    pde_dict = {idx: point for idx, point in point_dict.items()}
+    pde_dict = point_dict#{idx: point for idx, point in point_dict.items()}
 
     mp_args = [(j, point.X, diff_order, diff_acc, N_us_tot, min_points, max_points) for j, point in pde_dict.items()]
 
