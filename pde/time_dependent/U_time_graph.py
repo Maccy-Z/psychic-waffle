@@ -8,7 +8,9 @@ from pde.graph_grid.graph_store import DerivGraph, Point, Deriv, T_Point
 from pde.graph_grid.graph_store import P_Types as T, P_TimeTypes as TT
 from pde.findiff.findiff_coeff import gen_multi_idx_tuple, calc_coeff
 from pde.findiff.fin_deriv_calc import FinDerivCalcSPMV, NeumanBCCalc
-from pde.graph_grid.graph_utils import plot_points
+from pde.graph_grid.graph_utils import plot_points, plot_interp_graph
+from pde.utils_sparse import coo_col_select
+
 
 class UTemp(UBase):
     _Xs: Tensor   # [N_us_tot, 2]                # Coordinates of nodes
@@ -138,8 +140,20 @@ class UGraphTime(UBase):
             self.neumann_mask = torch.tensor(neumann_mask, dtype=torch.bool)
 
             self._cuda_bc()
-            self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask[:, 0], self.updt_mask[:, 0],
+            self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask[:, 0], self.neumann_mask[:, 0],
                                               self.deriv_orders_bc, N_component, device=self.device)
+
+            # 3.1: Setup neuman BC updates
+            A = self.deriv_calc_bc.deriv_mat.to_sparse_coo()
+            # A is stacked over components, [x1, x2, x3, ..., y1, y2, y3, ...]. Repeat mask
+            self.mask = self.deriv_calc_bc.grad_mask.repeat(2)
+            # Solve A_bc u_bc + A_main u_main = deriv_val
+            A_bc = coo_col_select(A, self.mask)
+            self.A_main = coo_col_select(A, ~self.mask)
+            #u_bc = self._us.T.flatten()[mask]
+
+            self.A_bc_inv = torch.inverse(A_bc.to_dense())
+
 
     def _cuda_bc(self):
         self.deriv_val = self.deriv_val.cuda(non_blocking=True)
@@ -155,7 +169,6 @@ class UGraphTime(UBase):
                 edge_idx, fd_weights = calc_coeff(setup_dict, grad_acc, degree)
                 graphs[degree] = DerivGraph(edge_idx, fd_weights, shape=(self.N_us_tot, self.N_us_tot))
         return graphs
-
 
     def get_subgraph(self, components=None, all_grads=False) -> UTemp:
         """ Make copy of subgraph with only certain components. """
@@ -179,6 +192,7 @@ class UGraphTime(UBase):
 
     def set_bc(self, dirich_bc=None):
         """ Set boundary conditions. """
+        bc_deriv = None
         if dirich_bc is not None:
             dirich_bc = dirich_bc.to(self.device, non_blocking=True)
             assert dirich_bc.sum() == self.N_dirich, "Dirichlet BC must match number of Dirichlet points."
@@ -186,6 +200,18 @@ class UGraphTime(UBase):
             self._us[self.dirich_mask] = dirich_bc
 
         if self.neumann_mode is not None:
+            """ Solve A_bc u_bc + A_main u_main = deriv_val"""
+            deriv_val = self.deriv_val.T.flatten()
+            u_main = self._us.T.flatten()[~self.mask]
+
+            b = deriv_val - self.A_main @ u_main
+            u_bc = self.A_bc_inv @ b
+            self._us.T[self.neumann_mask.T] = u_bc
+
+
+            plot_interp_graph(self._Xs, self._us[:, 0])
+            exit("j23")
+
             bc_deriv = self.deriv_calc_bc.derivative(self._us)
 
         return bc_deriv

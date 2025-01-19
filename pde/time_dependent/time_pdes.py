@@ -39,7 +39,7 @@ def mesh_graph(cfg):
             # _X[0] += 0.05
             # setup_T.append(T_Point([TT.EXIT, TT.EXIT], _X, init_val=value))
         elif tag == "Normal"  or tag == "Left_extra" :
-            vx_init = 1 - (X[0]-0.5)/2.5
+            vx_init = 1.5 - (X[0]-0.5)/2.5
             value = [vx_init, 0]
 
             setup_T.append(T_Point([TT.NORMAL, TT.NORMAL], X, init_val=value))

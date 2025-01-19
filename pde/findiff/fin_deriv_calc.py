@@ -64,7 +64,6 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         self.grad_mask = grad_mask
         self.device = device
 
-        print(f'{self.eq_mask.shape = }')
         N_us_tot = self._check(fd_graphs)
 
         self.fd_spms = {}       # shape = [N_deriv], [N_eqs, N_us_tot]
@@ -124,7 +123,7 @@ class NeumanBCCalc(FinDerivCalcSPMV):
     """ Compute FinDiff derivatives for (linear) Neumann BCs, and full jacobian for R = sum_n grad_n(u) - constant.
         Precompute the selection derivatives and jacobian, that directly returns residuals / residual jacobian without going through autograd / sparse matmuls
     """
-    def __init__(self, fd_graphs: dict[tuple, DerivGraph], eq_mask: torch.Tensor, grad_mask: torch.Tensor, deriv_orders: dict[int, Deriv],
+    def __init__(self, fd_graphs: dict[tuple, list[DerivGraph]], eq_mask: torch.Tensor, grad_mask: torch.Tensor, deriv_orders: dict[int, Deriv],
                  N_comp, device="cpu"):
         """
             deriv_orders: Derivative order for each derivative BC
@@ -160,6 +159,7 @@ class NeumanBCCalc(FinDerivCalcSPMV):
 
         del self.fd_spms
         del self.jac_spms
+
 
     def derivative(self, Us) -> torch.Tensor:
         """ Us.shape = [N_us_tot, N_components]
