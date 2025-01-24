@@ -1,12 +1,27 @@
-import torch
-tensor = torch.zeros(4, 4)
-mask = torch.tensor([[True, True, False, False],
-                     [False, False, True, True],
-                     [True, False, False, False],
-                     [False, True, True, False]])  # Mask with irregular `True`s
-values = torch.tensor([1., 2, 3, 4, 5, 6, 7])  # Enough values for all `True`s
+import numpy as np
 
-# Set the `True` positions
-tensor[mask] = values
-print(tensor)
-print(tensor[mask].shape)
+
+def construct_A_numpy(N, h):
+    A = np.zeros((N, N))
+
+    # Left boundary (forward difference)
+    A[0, 0] = -1.0 / h
+    A[0, 1] = 1.0 / h
+
+    # Interior points (central difference)
+    for i in range(1, N - 1):
+        A[i, i - 1] = -0.5 / h
+        A[i, i + 1] = 0.5 / h
+
+    # Right boundary (backward difference)
+    A[N - 1, N - 2] = -1.0 / h
+    A[N - 1, N - 1] = 1.0 / h
+
+    return A
+
+A = construct_A_numpy(5, 1.0)
+
+print(A)
+
+D2 = A @ A
+print(D2)

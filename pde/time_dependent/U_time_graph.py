@@ -40,6 +40,35 @@ class UTemp(UBase):
         """
         self._us[self.grad_mask] = new_us.flatten()
 
+class BC_enforce:
+    def __init__(self, deriv_val, deriv_mat, grad_mask, neumann_mask):
+        self.deriv_val = deriv_val.T.flatten()
+        self.neumann_mask_T = neumann_mask.T
+
+        # 3.1: Setup neuman BC updates
+        A = deriv_mat.to_sparse_coo()
+        # A is stacked over components, [x1, x2, x3, ..., y1, y2, y3, ...]. Repeat mask
+        self.mask = grad_mask.repeat(2)
+        # Solve A_bc u_bc + A_main u_main = deriv_val
+        A_bc = coo_col_select(A, self.mask)
+        self.A_main = coo_col_select(A, ~self.mask)
+        # u_bc = self._us.T.flatten()[mask]
+
+        self.A_bc_inv = torch.inverse(A_bc.to_dense())
+
+    def set_bc_(self, us_):
+        """ Solve A_bc u_bc + A_main u_main = deriv_val"""
+        deriv_val = self.deriv_val
+        u_main = us_.T.flatten()[~self.mask]
+        b = deriv_val - self.A_main @ u_main
+        u_bc = self.A_bc_inv @ b
+        us_.T[self.neumann_mask_T] = u_bc
+
+        #
+        # plot_interp_graph(self._Xs, self._us[:, 0])
+        # exit("j23")
+
+
 class UGraphTime(UBase):
     """ Holder for graph structure. """
     setup_dict: dict[int, T_Point]  # [N_us_tot]                  # Dictionary of points
@@ -142,18 +171,17 @@ class UGraphTime(UBase):
             self._cuda_bc()
             self.deriv_calc_bc = NeumanBCCalc(self.graphs, self.neumann_mask[:, 0], self.neumann_mask[:, 0],
                                               self.deriv_orders_bc, N_component, device=self.device)
-
             # 3.1: Setup neuman BC updates
-            A = self.deriv_calc_bc.deriv_mat.to_sparse_coo()
-            # A is stacked over components, [x1, x2, x3, ..., y1, y2, y3, ...]. Repeat mask
-            self.mask = self.deriv_calc_bc.grad_mask.repeat(2)
-            # Solve A_bc u_bc + A_main u_main = deriv_val
-            A_bc = coo_col_select(A, self.mask)
-            self.A_main = coo_col_select(A, ~self.mask)
-            #u_bc = self._us.T.flatten()[mask]
-
-            self.A_bc_inv = torch.inverse(A_bc.to_dense())
-
+            self.bc_enforce = BC_enforce(self.deriv_val, self.deriv_calc_bc.deriv_mat, self.deriv_calc_bc.grad_mask, self.neumann_mask)
+            # A = self.deriv_calc_bc.deriv_mat.to_sparse_coo()
+            # # A is stacked over components, [x1, x2, x3, ..., y1, y2, y3, ...]. Repeat mask
+            # self.mask = self.deriv_calc_bc.grad_mask.repeat(2)
+            # # Solve A_bc u_bc + A_main u_main = deriv_val
+            # A_bc = coo_col_select(A, self.mask)
+            # self.A_main = coo_col_select(A, ~self.mask)
+            # #u_bc = self._us.T.flatten()[mask]
+            #
+            # self.A_bc_inv = torch.inverse(A_bc.to_dense())
 
     def _cuda_bc(self):
         self.deriv_val = self.deriv_val.cuda(non_blocking=True)
@@ -170,22 +198,42 @@ class UGraphTime(UBase):
                 graphs[degree] = DerivGraph(edge_idx, fd_weights, shape=(self.N_us_tot, self.N_us_tot))
         return graphs
 
-    def get_subgraph(self, components=None, all_grads=False) -> UTemp:
-        """ Make copy of subgraph with only certain components. """
-        if components is None:
-            components = [i for i in range(self.N_component)]
+    def get_subgraph(self, components=None, all_grads=False):
+        """ Make copy of subgraph, except deriv_calc returns all gradients instead of just pde. """
+        # if components is None:
+        #     components = [i for i in range(self.N_component)]
+        #
+        # if all_grads:
+        #     mask = torch.ones_like(self.pde_mask).bool()
+        # else:
+        #     mask = self.updt_mask
 
-        if all_grads:
-            mask = torch.ones_like(self.pde_mask).bool()
-        else:
-            mask = self.updt_mask
+        # deriv_calc = FinDerivCalcSPMV(self.graphs, mask, mask, self.N_component, device=self.device)
+        # us_clone = self._us.clone()
+        # subraph_copy = UTemp(self._Xs.clone(), us_clone, deriv_calc, self.pde_mask, self.updt_mask)
+        # return subraph_copy
+        mask = torch.ones_like(self.pde_mask).bool()
+        new_instance = self.__class__.__new__(self.__class__)
 
-        N_component = len(components)
-        deriv_calc = FinDerivCalcSPMV(self.graphs, mask, mask, N_component, device=self.device)
-        us_clone = self._us[:, components].clone()
-        subraph_copy = UTemp(self._Xs.clone(), us_clone, deriv_calc, self.pde_mask, self.updt_mask[:, components])
+        new_instance.device = self.device
+        new_instance._Xs = self._Xs.clone()
+        new_instance._us = self._us.clone()
+        new_instance.deriv_val = self.deriv_val.clone()
+        new_instance.pde_mask = self.pde_mask.clone()
 
-        return subraph_copy
+        new_instance.updt_mask = self.updt_mask.clone()
+        new_instance.neumann_mask = self.neumann_mask.clone()
+        new_instance.neumann_mode = self.neumann_mode
+        new_instance.N_us_tot = self.N_us_tot
+        new_instance.N_us_grad = self.N_us_grad
+        new_instance.N_pdes = self.N_pdes
+        new_instance.N_component = self.N_component
+        new_instance.N_deriv = self.N_deriv
+        new_instance.deriv_calc = FinDerivCalcSPMV(self.graphs, mask, mask, self.N_component, device=self.device)
+        new_instance.deriv_calc_bc = self.deriv_calc_bc
+        # Keep bc_enforce, since it's not dependent on components
+        new_instance.bc_enforce = self.bc_enforce
+        return new_instance
 
     def reset(self):
         self._us = torch.zeros_like(self._us)
@@ -199,22 +247,14 @@ class UGraphTime(UBase):
             assert dirich_bc.sum() == self.N_dirich, "Dirichlet BC must match number of Dirichlet points."
             self._us[self.dirich_mask] = dirich_bc
 
-        if self.neumann_mode is not None:
-            """ Solve A_bc u_bc + A_main u_main = deriv_val"""
-            deriv_val = self.deriv_val.T.flatten()
-            u_main = self._us.T.flatten()[~self.mask]
+        if self.neumann_mode:
+            # bc_deriv = self.deriv_calc_bc.derivative(self._us)
+            # print(bc_deriv)
 
-            b = deriv_val - self.A_main @ u_main
-            u_bc = self.A_bc_inv @ b
-            self._us.T[self.neumann_mask.T] = u_bc
+            self.bc_enforce.set_bc_(self._us)
 
 
-            plot_interp_graph(self._Xs, self._us[:, 0])
-            exit("j23")
 
-            bc_deriv = self.deriv_calc_bc.derivative(self._us)
-
-        return bc_deriv
 
     def get_grads(self):
         grad_dict = self.deriv_calc.derivative(self._us)
@@ -240,7 +280,7 @@ class UGraphTime(UBase):
         Set grid to new values.
         new_us.shape = [N_us_grad_total]
         """
-        self._us[self.updt_mask] = new_us
+        self._us[self.updt_mask] = new_us.flatten()
 
     def set_grid_irreg(self, new_us):
         """

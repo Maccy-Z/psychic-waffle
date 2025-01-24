@@ -133,8 +133,8 @@ class UGraph(UBase):
 
         # 2.1) Add additional stencils
         #edge_mask = torch.tensor([point.edge_mask for point in setup_dict.values()], dtype=torch.float32)
-        #edge_mask = torch.ones(len(neum_mask))
-        edge_mask = 1 - torch.tensor(neum_mask, dtype=torch.float32)
+        edge_mask = torch.ones(len(neum_mask))
+        #edge_mask = 1 - torch.tensor(neum_mask, dtype=torch.float32)
         laplacian = DerivGraph.add(DerivGraph.compose(self.graphs[(1, 0)], self.graphs[(1, 0)], mask=edge_mask),
                                    DerivGraph.compose(self.graphs[(0, 1)], self.graphs[(0, 1)], mask=edge_mask)
                                    )
@@ -198,7 +198,6 @@ class UGraph(UBase):
 
         return new_instance
 
-
     def reset(self):
         self._us = torch.zeros_like(self._us)
 
@@ -217,12 +216,8 @@ class UGraph(UBase):
 
     def set_eval_deriv_calc(self, mask):
         assert self.deriv_calc_eval is None, "Already set eval deriv calc"
-
         self.deriv_calc_eval = FinDerivCalcSPMV(self.graphs, mask, mask, self.N_component, device=self.device)
 
-    def get_eval_grads(self):
-        grad_dict = self.deriv_calc_eval.derivative(self._us)
-        return grad_dict
 
     def get_grads(self):
         grad_dict = self.deriv_calc.derivative(self._us)

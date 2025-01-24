@@ -122,7 +122,7 @@ def gen_mesh_time(xmin, xmax, ymin, ymax, areas=None):
     # print(lengthscale)
     X = 0.5
 
-    mesh_props = MeshProps(min_area, max_area, lengthscale=0.25)
+    mesh_props = MeshProps(min_area, max_area, lengthscale=0.4)
 
     coords = [#Box(Xmin, Xmax, hole=False, name="farfield", remove_edge=2),
               Line([xmin, ymin], [xmax, ymin], True, name="Wall"),     # Bottom
