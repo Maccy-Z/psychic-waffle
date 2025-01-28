@@ -100,16 +100,21 @@ class FinDerivCalcSPMV(BaseDerivCalc):
         return graphs[0].shape[0]
 
 
-    def derivative(self, Us) -> dict[tuple, torch.Tensor]:
+    def derivative(self, Us, get_orders: list = None) -> dict[tuple, torch.Tensor]:
         """ Xs.shape = [N_points, N_components]
             spm.shape = [N_pde, N_points]
             return.shape = {N_deriv: [N_pde, N_components]}
         """
         derivatives = {(0, 0): Us[self.eq_mask]}
-
-        for order, spm in self.fd_spms.items():
-            Us = Us.contiguous()
-            derivatives[order] = torch.mm(spm, Us)
+        if get_orders is None:
+            for order, spm in self.fd_spms.items():
+                Us = Us.contiguous()
+                derivatives[order] = torch.mm(spm, Us)
+        else:
+            for order in get_orders:
+                spm = self.fd_spms[order]
+                Us = Us.contiguous()
+                derivatives[order] = torch.mm(spm, Us)
         return derivatives
 
     def jacobian(self) -> list[torch.FloatTensor]:

@@ -48,25 +48,26 @@ class BC_enforce:
         # 3.1: Setup neuman BC updates
         A = deriv_mat.to_sparse_coo()
         # A is stacked over components, [x1, x2, x3, ..., y1, y2, y3, ...]. Repeat mask
-        self.mask = grad_mask.repeat(2)
+        self.bc_mask = grad_mask.repeat(2)
         # Solve A_bc u_bc + A_main u_main = deriv_val
-        A_bc = coo_col_select(A, self.mask)
-        self.A_main = coo_col_select(A, ~self.mask)
-        # u_bc = self._us.T.flatten()[mask]
-
+        A_bc = coo_col_select(A, self.bc_mask)
+        self.A_main = coo_col_select(A, ~self.bc_mask)
         self.A_bc_inv = torch.inverse(A_bc.to_dense())
+
 
     def set_bc_(self, us_):
         """ Solve A_bc u_bc + A_main u_main = deriv_val"""
-        deriv_val = self.deriv_val
-        u_main = us_.T.flatten()[~self.mask]
-        b = deriv_val - self.A_main @ u_main
+        u_main = us_.T.flatten()[~self.bc_mask]
+        b = self.deriv_val - self.A_main @ u_main
         u_bc = self.A_bc_inv @ b
-        us_.T[self.neumann_mask_T] = u_bc
 
-        #
-        # plot_interp_graph(self._Xs, self._us[:, 0])
-        # exit("j23")
+        # Don't let BC blow up
+        top_vals, top_idxs = torch.topk(u_bc, 2)
+        u_bc = torch.clamp(u_bc, max=u_bc[top_idxs[1]] * 1.05)
+        u_bc = torch.clamp(u_bc, max=us_.max(), min=us_.min())
+        # print(u_bc.max())
+
+        us_.T[self.neumann_mask_T] = u_bc
 
 
 class UGraphTime(UBase):

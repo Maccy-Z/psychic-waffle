@@ -108,6 +108,45 @@ def gen_points_full():
     #plot_mesh(mesh)
     return points, p_tags
 
+
+def generate_box_points_spacing(xmax, ymax, spacing=1.0):
+    """
+    Generates an array of 2D points outlining a box from [0, 0] to [xmax, ymax],
+    with approximately the specified spacing between consecutive points.
+
+    Parameters:
+    - xmax (float): The maximum x-coordinate of the box.
+    - ymax (float): The maximum y-coordinate of the box.
+    - spacing (float, optional): Desired spacing between points. Default is 1.0.
+
+    Returns:
+    - numpy.ndarray: An array of shape (N, 2) containing the 2D points,
+                     where N depends on the spacing and box dimensions.
+    """
+    if spacing <= 0:
+        raise ValueError("Spacing must be a positive number.")
+
+    def compute_num_points(length, _spacing):
+        return max(int(np.ceil(length / _spacing)), 1)  # At least 1 point
+
+    num_points_bottom = compute_num_points(xmax, spacing)
+    num_points_right = compute_num_points(ymax, spacing)
+    num_points_top = compute_num_points(xmax, spacing)
+    num_points_left = compute_num_points(ymax, spacing)
+
+    # Bottom edge: from (0, 0) to (xmax, 0)
+    bottom = np.linspace([0, 0], [xmax, 0], num=num_points_bottom, endpoint=True)
+    # Right edge: from (xmax, 0) to (xmax, ymax)
+    right = np.linspace([xmax, spacing], [xmax, ymax], num=num_points_right, endpoint=False)
+    # Top edge: from (xmax, ymax) to (0, ymax)
+    top = np.linspace([xmax, ymax], [0, ymax], num=num_points_top, endpoint=True)
+    # Left edge: from (0, ymax) to (0, 0)
+    left = np.linspace([0, spacing], [0, ymax], num=num_points_left, endpoint=False)
+
+    box_points = np.vstack((bottom, right, top, left))
+    idxs = ["Wall" for _ in range(len(bottom))] + ["Right" for _ in range(len(right))] + ["Wall" for _ in range(len(top))] + ["Left" for _ in range(len(left))]
+    return box_points, idxs
+
 def gen_mesh_time(xmin, xmax, ymin, ymax, areas=None):
     if areas is None:
         min_area = 5.e-3
@@ -118,40 +157,43 @@ def gen_mesh_time(xmin, xmax, ymin, ymax, areas=None):
     circle_center = (0.5, 0.4)
     circle_radius = 0.1
 
-    lnscale = np.sqrt(2*min_area)
-    # print(lengthscale)
-    X = 0.5
+    lnscale = np.sqrt(1.5*min_area)
+    # print(lnscale)
 
-    mesh_props = MeshProps(min_area, max_area, lengthscale=0.4)
+    mesh_props = MeshProps(min_area, max_area, lengthscale=0.5)
 
-    coords = [#Box(Xmin, Xmax, hole=False, name="farfield", remove_edge=2),
-              Line([xmin, ymin], [xmax, ymin], True, name="Wall"),     # Bottom
-              Line([xmin, ymax], [xmax, ymax], True, name="Wall"),     # Top
-              Line([xmin, ymin], [xmin, ymax], True, name="Left"),    # Left
-              Line([xmin+X, ymin+0.1], [xmin+X, ymax - 0.1], True, name="Left_extra"),  # Left
-
-        Line([xmax, ymax], [xmax, ymin], True, name="Right"),   # Right
-              # Circle(circle_center, circle_radius, lengthscale, True, name=PT.DirichBC),
-              # Ellipse((2.0, 1), 0.2, 0.75, np.pi/3, lengthscale, True, dist_req=True, name=PT.DirichBC),
-              # Line([1, 0.1], [1, 0.5], name="Inlet1")
+    coords = [
+                Line([xmin, ymin], [xmax, ymin], True, name="Wall"),     # Bottom
+                Line([xmin, ymax], [xmax, ymax], True, name="Wall"),     # Top
+                Line([xmin, ymin], [xmin, ymax], True, name="Left"),    # Left
+                Line([xmax, ymax], [xmax, ymin], True, name="Right"),   # Right
               ]
     mesh, marker_tags = create_mesh(coords, mesh_props)
     point_props, markers, _ = extract_mesh_data(mesh)
     points, _ = point_props
     p_markers, _ = markers
 
-    # Set corner tags very carefully
-    corners = [[xmin, xmin], [xmin, ymax], [xmax, ymax], [xmax, ymin]]
-    wall_tag = dict_key_by_value(marker_tags, "Wall")
-    left_tag = dict_key_by_value(marker_tags, "Left")
-    for i, (point, tag) in enumerate(zip(points, p_markers, strict=True)):
-        if np.any(np.all(np.isclose(corners, point), axis=1)):
-            p_markers[i] = wall_tag        # Corresponds to wall
-    for i, (point, tag) in enumerate(zip(points, p_markers, strict=True)):
-        if point[0] < xmin + X and tag not in [wall_tag, wall_tag + 1, left_tag]:
-            p_markers[i] = dict_key_by_value(marker_tags, "Left_extra")
+    # Extra layer
+    points = points + 2 * lnscale
+    box_points, box_tags = generate_box_points_spacing(xmax + 2*lnscale, ymax + 2*lnscale, lnscale)
+    bc_points, bc_tags = generate_box_points_spacing(xmax + 4*lnscale, ymax + 4*lnscale, lnscale)
+    box_points = box_points + lnscale
+    p_tags = [marker_tags[0] for _ in p_markers]
+    box_tags = [marker_tags[0] for _ in box_tags]
+    points = np.vstack((points, box_points, bc_points))
+    p_tags = p_tags + box_tags + bc_tags
 
-    p_tags = [marker_tags[int(i)] for i in p_markers]
+    # # Set corner tags very carefully
+    # corners = [[xmin, xmin], [xmin, ymax], [xmax, ymax], [xmax, ymin]]
+    # wall_tag = dict_key_by_value(marker_tags, "Wall")
+    # for i, (point, tag) in enumerate(zip(points, p_markers, strict=True)):
+    #     if np.any(np.all(np.isclose(corners, point), axis=1)):
+    #         p_markers[i] = wall_tag        # Corresponds to wall
+    # for i, (point, tag) in enumerate(zip(points, p_markers, strict=True)):
+    #     if point[0] < xmin + X and tag not in [wall_tag, wall_tag + 1, left_tag]:
+    #         p_markers[i] = dict_key_by_value(marker_tags, "Left_extra")
+
+    #p_tags = [marker_tags[int(i)] for i in p_markers]
 
     return points, p_tags
 

@@ -4,18 +4,19 @@ from cprint import c_print
 from pde.graph_grid.graph_store import Point,  Deriv, T_Point
 from pde.graph_grid.graph_store import P_TimeTypes as TT, P_Types as T
 from pde.config import Config
-from pde.time_dependent.U_time_graph import UGraphTime, UTemp
 from pde.mesh_generation.generate_mesh import gen_mesh_time
-from pde.time_dependent.time_cfg import ConfigTime
 from pde.graph_grid.U_graph import UGraph
+from pde.graph_grid.graph_utils import plot_points
 from pde.time_dependent.ode_func import ExplicitNS, SemiExplNS
+from pde.time_dependent.time_cfg import ConfigTime
+from pde.time_dependent.U_time_graph import UGraphTime, UTemp
 
 def mesh_graph(cfg):
     N_comp = 2
 
     xmin, xmax = 0, 3
     ymin, ymax = 0.0, 1.5
-    Xs, p_tags = gen_mesh_time(xmin, xmax, ymin, ymax, areas=[1e-3, 5e-3])
+    Xs, p_tags = gen_mesh_time(xmin, xmax, ymin, ymax, areas=[2e-3, 5e-3])
     Xs = torch.from_numpy(Xs).float()
     c_print(f'Number of mesh points: {len(Xs)}', "green")
 
@@ -45,8 +46,9 @@ def mesh_graph(cfg):
             raise ValueError(f"Unknown tag {tag}")
 
     setup_T = {i: point for i, point in enumerate(setup_T)}
-    u_graph_time = UGraphTime(setup_T, N_component=N_comp, grad_acc=3, device=cfg.DEVICE)
-
+    u_graph_time = UGraphTime(setup_T, N_component=N_comp, grad_acc=2, device=cfg.DEVICE)
+    # plot_points(u_graph_time._Xs, u_graph_time.updt_mask[:, 0], title="grad mask")
+    # exit(9)
     with open("./save_u_graph_T.pth", "wb") as f:
         torch.save(u_graph_time, f)
 
@@ -75,8 +77,8 @@ def mesh_graph(cfg):
 
 
     u_graph_pde = UGraph(setup_pde, N_component=1, grad_acc=2, device=cfg.DEVICE)
-    # plot_points(u_graph_pde._Xs, u_graph_pde.updt_mask, title="grad mask")
-    # plot_points(u_graph_pde._Xs, u_graph_pde.pde_mask, title="pde mask")
+    plot_points(u_graph_pde._Xs, u_graph_pde.updt_mask, title="grad mask")
+    plot_points(u_graph_pde._Xs, u_graph_pde.pde_mask, title="pde mask")
 
     with open("./save_u_graph.pth", "wb") as f:
         torch.save(u_graph_pde, f)
@@ -117,7 +119,7 @@ class TimePDEBase:
         self.cfg_in = cfg_in
         self.u_saves = {}
 
-        self.PDE_timefn = ExplicitNS(u_graph_T, u_graph_PDE, cfg_in, cfg_T) #ExplicitNS(u_graph_T, u_graph_PDE, cfg_in, cfg_T)
+        self.PDE_timefn = SemiExplNS(u_graph_T, u_graph_PDE, cfg_in, cfg_T) #ExplicitNS(u_graph_T, u_graph_PDE, cfg_in, cfg_T)
 
         self.device = "cuda"
         self.dtype = torch.float32
@@ -128,7 +130,7 @@ class TimePDEBase:
         timesteps = torch.linspace(cfg_T.time_domain[0], cfg_T.time_domain[1], cfg_T.timesteps * cfg_T.substeps, dtype=self.dtype)
 
         for step_num, t in enumerate(timesteps):
-            print(f'{step_num = }, t = {t.item()}')
+            print(f'{step_num = }, t = {t.item():.3g}')
 
             # #Plotting
             # us, Xs = self.u_graph_T.get_all_us_Xs()

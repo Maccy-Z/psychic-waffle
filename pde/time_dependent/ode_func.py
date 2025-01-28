@@ -83,7 +83,6 @@ class ExplicitNS:
         """ u_dus: dict[degree, torch.Tensor]. shape = [N_deriv][N_us_grad, N_comp]
             Returns: new values of velocity and pressure at variable nodes at time t.
         """
-        #self.p_graph_PDE.reset()
         self.u_graph_T.set_bc()
 
         self.v_star_graph.reset()
@@ -104,79 +103,94 @@ class ExplicitNS:
 
         # Solve pressure equation multiple times
         # P_n+1 = P_n + DP_i = P_n + sum_i dp_i
-        iters = 100 if step_num < 2 else 1
+        iters = 2 if step_num < 2 else 1
         for i in range(iters):
             self.dp_graph.reset()
             self.v_star_graph.set_grid(v_star_updt)
             self.v_star_graph.set_bc()
+            v_star_old = self.v_star_graph.get_all_us_Xs()[0].clone()
 
             # Pressure correction: laplacian(dP) = rho/dt div(v_star)
             v_star_grad = self.v_star_graph.get_grads()
             div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
             # Solve pressure equation
-            div_v_s_ = div_v_s.clone()
-            div_v_s_[~self.V_star_mask] = 0
-            div_v_s_ = div_v_s_ * self.rho / self.cfg_T.dt
+            div_v_s[~self.V_star_mask] = 0
+            div_v_s_ = div_v_s * self.rho / self.cfg_T.dt
             div_v_s_ = div_v_s_[self.P_pde_mask]
             self.p_solver.forward_solve([div_v_s_, self.grad_I[0], self.grad_I[1]])
             dp_i = self.dp_graph.get_all_us_Xs()[0]   # shape = [N_ps, 1]
 
-
-            # Update velocity: V_star_i+1 = V_star_i - dt/rho grad(dp_i)
+            # Update velocity: V_star_i+1 = V_star_i - w * dt/rho grad(dp_i)
             dP_grads = p_deriv_calc.derivative(dp_i)
-            grad_dP = torch.cat([dP_grads[(1, 0)], dP_grads[(0, 1)]], dim=1)#
-            v_star_updt += - self.dt / self.rho * grad_dP[self.V_star_mask]
+            grad_dP = torch.cat([dP_grads[(1, 0)], dP_grads[(0, 1)]], dim=1)
+            # Compute update factor: w = div_u (u) dot div_u(grad_p(dP)) / div_u(grad_p(dP))^2
+            grad_dP[~self.V_star_mask] = 0
+            grad2_dp = self.v_s_deriv_calc.derivative(grad_dP)
+            laplac_dp = grad2_dp[(1, 0)][..., 0] + grad2_dp[(0, 1)][..., 1]
+            laplac_dp[~self.V_star_mask] = 0
+            laplac_dp *= self.cfg_T.dt / self.rho
+            w = torch.dot(div_v_s, laplac_dp) / torch.dot(laplac_dp, laplac_dp)
+            # v_i+1 = v_i - w * grad(dp_i) * dt/rho
+            v_star_updt += - w * self.dt / self.rho * grad_dP[self.V_star_mask]
 
             # Update pressure:
-            Dp += dp_i
+            Dp += w * dp_i
 
+            print(f'{step_num}: {div_v_s_.norm() = }, {w = }')
 
-            if i == 49 or i == 50:
-                div_v_s[~self.V_star_mask] = 0
-                grad2_dp = self.v_s_deriv_calc.derivative(grad_dP)
-                laplac_dp = grad2_dp[(1, 0)][..., 0] + grad2_dp[(0, 1)][..., 1]
-                laplac_dp[~self.V_star_mask] = 0
-                laplac_dp *= self.cfg_T.dt / self.rho
-                w = torch.dot(div_v_s, laplac_dp) / torch.dot(laplac_dp, laplac_dp)
-                print(f'{w = }')
-
-                # First method:
-                v_star = self.v_star_graph.get_all_us_Xs()[0]
-                v_n_1 = v_star - grad_dP * self.dt / self.rho
-                v_star_grad = self.v_s_deriv_calc.derivative(v_n_1)
+            if step_num ==3:
+                # After update
+                self.v_star_graph.set_grid(v_star_updt)
+                v_star_grad = self.v_star_graph.get_grads()
                 div_v_n1 = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
                 print(f'{div_v_n1.shape = }')
                 div_v_n1[~self.V_star_mask] = 0
-                plot_interp_graph(_X, div_v_n1, title=f"w=1 - Step {i}")
-                c_print(f'{div_v_n1.norm() = }', color='green')
+                plot_interp_graph(_X, div_v_n1, title=f"Divergence - Step {i}")
+                c_print(f'New divergence {div_v_n1.norm() = }', color='green')
+                _u, _ = self.v_star_graph.get_all_us_Xs()
+                plot_interp_graph(_X, _u[:, 0], title=f"Vx- Step {i:.3g}")
+                plot_interp_graph(_X, _u[:, 1], title=f"Vy- Step {i:.3g}")
 
-                # First method:
-                v_star = self.v_star_graph.get_all_us_Xs()[0]
-                v_n_1 = v_star - w * grad_dP * self.dt / self.rho
-                v_star_grad = self.v_s_deriv_calc.derivative(v_n_1)
+                # Before update
+                self.v_star_graph._us = v_star_old
+                # _u, _ = self.v_star_graph.get_all_us_Xs()
+                # plot_interp_graph(_X, _u[:, 0], title=f"old Vx- Step {i:.3g}")
+                # plot_interp_graph(_X, _u[:, 1], title=f"old Vy- Step {i:.3g}")
+                v_star_grad = self.v_star_graph.get_grads()
                 div_v_n1 = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
-                print(f'{div_v_n1.shape = }')
                 div_v_n1[~self.V_star_mask] = 0
-                plot_interp_graph(_X, div_v_n1, title=f"w=w - Step {i}")
-                c_print(f'{div_v_n1.norm() = }', color='green')
-                v_star_updt = v_n_1[self.V_star_mask]
+                plot_interp_graph(_X, div_v_n1, title=f"Div old - Step {i}")
+                c_print(f'Old divergence {div_v_n1.norm() = }', color='green')
+
+                # # First method:
+                # v_star = self.v_star_graph.get_all_us_Xs()[0]
+                # v_n_1 = v_star - grad_dP * self.dt / self.rho
+                # v_star_grad = self.v_s_deriv_calc.derivative(v_n_1)
+                # div_v_n1 = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
+                # print(f'{div_v_n1.shape = }')
+                # div_v_n1[~self.V_star_mask] = 0
+                # plot_interp_graph(_X, div_v_n1, title=f"w=1 - Step {i}")
+                # c_print(f'{div_v_n1.norm() = }', color='green')
+                #
+                # # Second method:
+                # v_star = self.v_star_graph.get_all_us_Xs()[0]
+                # v_n_1 = v_star - w * grad_dP * self.dt / self.rho
+                # v_star_grad = self.v_s_deriv_calc.derivative(v_n_1)
+                # div_v_n1 = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
+                # print(f'{div_v_n1.shape = }')
+                # div_v_n1[~self.V_star_mask] = 0
+                # plot_interp_graph(_X, div_v_n1, title=f"w=w - Step {i}")
+                # c_print(f'{div_v_n1.norm() = }', color='green')
+                # v_star_updt = v_n_1[self.V_star_mask]
                 # div_v_s[~self.V_star_mask] = 0
                 # plot_interp_graph(_X, div_v_s, title=f"div_v_s- Step {i}")
-                # laplac_dp = dP_grads['laplacian']
-                # laplac_dp[~self.V_star_mask] = 0
-                # plot_interp_graph(_X, laplac_dp, title=f"laplac_dp- Step {i}")
-                # div_g_dp = dP_grads[(2, 0)][..., 0] + dP_grads[(0, 2)][..., 0]
-                # div_g_dp[~self.P_pde_mask] = 0
-                # plot_interp_graph(_X, div_g_dp, title=f"div_g_dp- Step {i}")
 
-            if i == 50:
+                exit(7)
                 break
 
-            div_v_s = div_v_s[self.V_star_mask]
-            mean_val = torch.norm(div_v_s)
+            # div_v_s = div_v_s[self.V_star_mask]
+            # mean_val = torch.norm(div_v_s)
             # print(f'{mean_val.item()}, ', end="")
-
-
 
         p_new = p_old + Dp
 
@@ -188,7 +202,7 @@ class ExplicitNS:
 
         """ Plotting """
         # torch.save({"updt_mask": self.P_updt_mask, "Xs": _X}, "graph.pth")
-        if step_num==0:
+        if step_num==10:
             plot_graph = self.v_star_graph
             _X = self.v_star_graph.get_all_us_Xs()[1]
 
@@ -243,7 +257,6 @@ class ExplicitNS:
             # plot_interp_graph(_X, est_laplace - true_laplace, title=f"Residual laplacian- Step {t}")
             # #Plotting V
             plot_graph.set_grid(v_star_updt)
-            #self.v_star_graph._us = v_new
             _u, _ = plot_graph.get_all_us_Xs()
             plot_interp_graph(_X, _u[:, 0], title=f"Vx- Step {t:.3g}")
             plot_interp_graph(_X, _u[:, 1], title=f"Vy- Step {t:.3g}")
@@ -285,8 +298,9 @@ class SemiExplNS:
 
         self.p_solver = NeuralPDEGraph(pde_fn_inner, self.dp_graph, cfg)
 
-        self.mu = 0.0
+        self.mu = 1
         self.rho = 1
+        self.dt = cfg_T.dt
 
         # The PDE is solved on a different graph from time derivatives.
         self.P_pde_mask = u_graph_PDE.pde_mask
@@ -294,6 +308,7 @@ class SemiExplNS:
         self.V_star_mask = self.v_star_graph.pde_mask
 
         self.v_deriv_calc = u_graph_T.deriv_calc
+        self.v_s_deriv_calc = self.v_star_graph.deriv_calc
         self.p_deriv_calc = u_graph_PDE.deriv_calc_eval
 
         self._set_grad_I()
@@ -304,19 +319,6 @@ class SemiExplNS:
         grad_I_x = grad_I[(1, 0)][self.P_pde_mask]
         grad_I_y = grad_I[(0, 1)][self.P_pde_mask]
         self.grad_I = (grad_I_x, grad_I_y)
-
-    def _v_star(self, dvdxs, dpdxs, vs):
-        # Convective = -(v . grad)v
-        vs_expand = vs.unsqueeze(-1)        # shape = [N_us_grad, 2, 1]
-        product = vs_expand * dvdxs         # shape = [N_us_grad, 2, 2]
-        convective = - product.sum(dim=-1)    # shape = [N_us_grad, 2]
-        # Pressure = -1/rho grad(p)
-        pressure = -1 / self.rho * dpdxs
-        # Uncorrected velocity update
-        dv_star = convective + pressure
-        v_star = vs + dv_star * self.cfg_T.dt
-
-        return v_star
 
     def _viscosity(self, v_dvs):
         d2vdx2s = torch.stack([v_dvs[(2, 0)], v_dvs[(0, 2)]], dim=1)
@@ -340,11 +342,22 @@ class SemiExplNS:
 
         return ps, dpdxs, d2pdx2s
 
+    def _v_star(self, dvdxs, dpdxs, vs):
+        # Convective = -(v . grad)v
+        vs_expand = vs.unsqueeze(-1)        # shape = [N_us_grad, 2, 1]
+        product = vs_expand * dvdxs         # shape = [N_us_grad, 2, 2]
+        convective = - product.sum(dim=-1)    # shape = [N_us_grad, 2]
+        # Pressure = -1/rho grad(p)
+        pressure = -1 / self.rho * dpdxs
+        # Uncorrected velocity update
+        dv_star = pressure + convective
+        v_star = vs + dv_star * self.dt
+        return v_star
+
     def solve(self, t, step_num=0):
         """ u_dus: dict[degree, torch.Tensor]. shape = [N_deriv][N_us_grad, N_comp]
             Returns: new values of velocity and pressure at variable nodes at time t.
         """
-        #self.p_graph_PDE.reset()
         self.u_graph_T.set_bc()
 
         self.v_star_graph.reset()
@@ -364,10 +377,11 @@ class SemiExplNS:
         v_i = self._v_star(dvdxs, dpdxs, vs)
 
         # Solve implicit update with viscosity and pressure
+        # P_n+1 = P_n + DP_i = P_n + sum_i dp_i
         v_0 = v_i.clone()
         sum_grad_dp = torch.zeros_like(dpdxs)
-        # P_n+1 = P_n + DP_i = P_n + sum_i dp_i
-        iters = 75 if step_num < 2 else 1
+        iters = 3 if step_num < 2 else 2
+        print()
         for i in range(iters):
             self.dp_graph.reset()
             self.v_star_graph.set_grid(v_i)
@@ -375,60 +389,89 @@ class SemiExplNS:
 
             # 2) u_hat_i+1 = u_0 + dt * viscosity(u_i) - dt/rho grad(p_i)
             v_i_grads = self.v_star_graph.get_grads()
-            v_star = v_0 + self.cfg_T.dt * (self._viscosity(v_i_grads)[self.V_star_mask] - 1. / self.rho * sum_grad_dp)
+            if step_num < 1:
+                v_star = v_0 + self.dt * (self._viscosity(v_i_grads)[self.V_star_mask] - 1. / self.rho * sum_grad_dp)
+            else:
+                v_j0 = v_0 + self.dt * (- 1. / self.rho * sum_grad_dp)
+                v_star = v_j0.clone()
+                for j in range(30):
+                    self.v_star_graph.set_grid(v_star)
+                    v_star = self.v_star_graph.get_all_us_Xs()[0]
+                    v_st_grads = self.v_s_deriv_calc.derivative(v_star, get_orders=[(2, 0), (0, 2)])
+                    v_star = v_j0 + self.dt * self._viscosity(v_st_grads)[self.V_star_mask]
+
+            print("MAX", v_star.max())
+
             self.v_star_graph.set_grid(v_star)
             self.v_star_graph.set_bc()
 
             # 3) Pressure correction: laplacian(dP) = rho/dt div(v_star)
             v_star_grad = self.v_star_graph.get_grads()
             div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
-            div_v_s_ = div_v_s.clone()
             div_v_s[~self.V_star_mask] = 0
-            div_v_s = div_v_s * self.rho / self.cfg_T.dt
-            div_v_s = div_v_s[self.P_pde_mask]
-            self.p_solver.forward_solve([div_v_s, self.grad_I[0], self.grad_I[1]])
-
-            # 4.1) Update pressure:
+            div_v_s_ = div_v_s * self.rho / self.dt
+            div_v_s_ = div_v_s_[self.P_pde_mask]
+            self.p_solver.forward_solve([div_v_s_, self.grad_I[0], self.grad_I[1]])
+            c_print(f'{div_v_s_.norm() = }', color='green')
+            # 4) Update pressure:
             dp_i = self.dp_graph.get_all_us_Xs()[0]   # shape = [N_ps, 1]
-            Dp += dp_i
 
-            # Update velocity: V_star_i+1 = V_star_i - dt/rho grad(dp_i)
+            # 5) Update velocity: V_star_i+1 = V_star_i - w * dt/rho grad(dp_i)
+            dPi_grads = p_deriv_calc.derivative(dp_i)
+            grad_dPi = torch.cat([dPi_grads[(1, 0)], dPi_grads[(0, 1)]], dim=1)
+            # 5.1) Compute update factor: w = div_u(u) dot div_u(grad_p(dP)) / div_u(grad_p(dP))^2
+            grad_dPi[~self.V_star_mask] = 0
+            grad2_dp = self.v_s_deriv_calc.derivative(grad_dPi)
+            laplac_dp = grad2_dp[(1, 0)][..., 0] + grad2_dp[(0, 1)][..., 1]
+            laplac_dp[~self.V_star_mask] = 0
+            laplac_dp *= self.dt / self.rho
+            w = torch.dot(div_v_s, laplac_dp) / torch.dot(laplac_dp, laplac_dp)
+            # 5.2) Update pressure:
             dp_grads = p_deriv_calc.derivative(dp_i)
             grad_dp_i = torch.cat([dp_grads[(1, 0)], dp_grads[(0, 1)]], dim=1)[self.V_star_mask]
-            sum_grad_dp += grad_dp_i
-            v_i += - self.cfg_T.dt / self.rho * grad_dp_i  #+ v_star_updt#[self.V_star_mask]
+            sum_grad_dp += w * grad_dp_i
+            Dp += w * dp_i
+            # 5.3) Update velocity: V_star_i+1 = V_star_i - w * dt/rho grad(dp_i)
+            v_i = v_star - w * self.dt / self.rho * grad_dp_i  #+ v_star_updt#[self.V_star_mask]
 
-        p_new = p_old + Dp
+            # Eval
+            self.v_star_graph.set_grid(v_i)
+            self.v_star_graph.set_bc()
 
-        # plot_interp_graph(_X, self.v_star_graph.get_all_us_Xs()[0][:, 0], title=f"v_star x- Step {t}")
-        self.v_star_graph.set_grid(v_i)
-        v_plot = self.v_star_graph.get_all_us_Xs()[0]
-        plot_interp_graph(_X, v_plot[:, 0], title=f"v_x new- Step {t}")
-        plot_interp_graph(_X, v_plot[:, 1], title=f"v_y new- Step {t}")
+            v_star_grad = self.v_star_graph.get_grads()
+            div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
+            div_v_s[~self.V_star_mask] = 0
+            div_v_s_ = div_v_s * self.rho / self.dt
+            div_v_s_ = div_v_s_[self.P_pde_mask]
+            print(f'{step_num} {i}: {div_v_s_.norm() = }, {w = }')
 
-        visc = self.cfg_T.dt * self._viscosity(v_i_grads)
-        plot_interp_graph(_X, visc[:, 0], title=f"viscosity- Step {t}")
-        exit(7)
+
+        if step_num > 0:
+            p_new = p_old + Dp
+        else:
+            p_new = p_old
+
         p_new = p_new[self.P_updt_mask]
         self.p_graph_PDE.set_grid(p_new)
+        # _p = self.p_graph_PDE.get_all_us_Xs()[0]
+        # plot_interp_graph(_X, _p, title=f"P new- Step {t}")
 
         us_new = [v_i[:, 0], v_i[:, 1]]
 
         """ Plotting """
-        if step_num==0:
+        if step_num==2:
             plot_graph = self.v_star_graph
             _X = self.v_star_graph.get_all_us_Xs()[1]
-
 
             # self.v_star_graph.set_grid(v_star)
             # _u, _X = self.v_star_graph.get_all_us_Xs()
             # plot_interp_graph(_X, _u[:, 0], title=f"Vx star- Step {t}")
             # plot_interp_graph(_X, _u[:, 1], title=f"Vy star- Step {t}")
 
-            # # Plotting P
-            # self.p_graph_PDE.set_grid(p_new)
-            # _p, _X = self.p_graph_PDE.get_all_us_Xs()
-            # plot_interp_graph(_X, _p[:, 0], title=f"P new- Step {t}")
+            # Plotting P
+            self.p_graph_PDE.set_grid(p_new)
+            _p, _X = self.p_graph_PDE.get_all_us_Xs()
+            plot_interp_graph(_X, _p[:, 0], title=f"P new- Step {t}")
             # #
             # # P grad
             # dP_grads = self.p_graph_PDE.get_eval_grads()
@@ -437,29 +480,36 @@ class SemiExplNS:
             # plot_interp_graph(_X, grad_dP_[:, 0], title=f"grad dP_x- Step {t}")
             # plot_interp_graph(_X, grad_dP_[:, 1], title=f"grad dP_y- Step {t}")
 
-
-            # plot_interp_graph(_X, div_v_s_est, title=f"Estimated divergence- Step {t}")
-            # plot_interp_graph(_X, est_laplace - true_laplace, title=f"Residual laplacian- Step {t}")
             # #Plotting V
             plot_graph.set_grid(v_i)
-            #self.v_star_graph._us = v_new
             _u, _ = plot_graph.get_all_us_Xs()
-            plot_interp_graph(_X, _u[:, 0], title=f"Vx- Step {t:.3g}", lim=[-2, 2])
-            plot_interp_graph(_X, _u[:, 1], title=f"Vy- Step {t:.3g}", lim=[-2, 2])
+            plot_interp_graph(_X, _u[:, 0], title=f"Vx- Step {t:.3g}")
+            plot_interp_graph(_X, _u[:, 1], title=f"Vy- Step {t:.3g}")
 
             # Viscous force
             plot_graph.set_grid(v_i)
             v_star_grad = plot_graph.get_grads()
-            div_v_s = v_star_grad[(0, 2)][..., 0] + v_star_grad[(2, 0)][..., 0]
-            div_v_s[~self.V_star_mask] = torch.nan
-            plot_interp_graph(_X, div_v_s, title=f"Viscosity X - Step {t}")
+            visc = self._viscosity(v_star_grad)#v_star_grad[(0, 2)][..., 0] + v_star_grad[(2, 0)][..., 0]
+            visc[~self.V_star_mask] = torch.nan
+            plot_interp_graph(_X, visc[:, 0], title=f"Viscosity X - Step {t}")
+
+            # Convection
+            plot_graph.set_grid(v_i)
+            v_star_grad = plot_graph.get_grads()
+            dvdxs = torch.stack([v_star_grad[(1, 0)], v_star_grad[(0, 1)]], dim=1)
+            vs = plot_graph.get_all_us_Xs()[0]
+            vs_expand = vs.unsqueeze(-1)  # shape = [N_us_grad, 2, 1]
+            product = vs_expand * dvdxs  # shape = [N_us_grad, 2, 2]
+            convective = - product.sum(dim=-1)  # shape = [N_us_grad, 2]
+            convective[~self.V_star_mask] = torch.nan
+            plot_interp_graph(_X, convective[:, 0], title=f"Convection X - Step {t}")
 
             # Final divergence
             plot_graph.set_grid(v_i)
             v_star_grad = plot_graph.get_grads()
             div_v_s = v_star_grad[(1, 0)][..., 0] + v_star_grad[(0, 1)][..., 1]
             div_v_s[~self.V_star_mask] = torch.nan
-            plot_interp_graph(_X, div_v_s, title=f"Final divergence- Step {t}", lim=[-2, 2])
+            plot_interp_graph(_X, div_v_s, title=f"Final divergence- Step {t}")
             #
             exit(4)
         return us_new
