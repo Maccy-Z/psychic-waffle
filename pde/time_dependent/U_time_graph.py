@@ -82,6 +82,7 @@ class UGraphTime(UBase):
     updt_mask: Tensor  # [N_us_tot, N_component]                   # Nodes that need to be updated. Bool
     neumann_mask: Tensor  # [N_us_tot, N_component]                   # Mask for derivative BC nodes. Bool
     neumann_mode: bool    # True if there are derivative BCs.
+    dirich_mask: Tensor  # [N_us_tot, N_component]                   # Mask for Dirichlet BC nodes. Bool
 
     N_us_tot: int           # Total number of points
     N_us_grad: int          # Number of points that need fitting
@@ -135,6 +136,9 @@ class UGraphTime(UBase):
                             for P_comps in self.setup_dict.values()]
         self.neumann_mask = torch.tensor(neumann_mask, dtype=torch.bool)
         self.neumann_mode = self.neumann_mask.sum().item() > 0
+        dirich_mask = [[TT.FIXED in P_type for P_type in P_comps.point_type]
+                             for P_comps in self.setup_dict.values()]
+        self.dirich_mask = torch.tensor(dirich_mask, dtype=torch.bool)
 
         # 1.2) Masks for points updated using du/dt ODE
         grad_setup_dict = {}
@@ -174,15 +178,7 @@ class UGraphTime(UBase):
                                               self.deriv_orders_bc, N_component, device=self.device)
             # 3.1: Setup neuman BC updates
             self.bc_enforce = BC_enforce(self.deriv_val, self.deriv_calc_bc.deriv_mat, self.deriv_calc_bc.grad_mask, self.neumann_mask)
-            # A = self.deriv_calc_bc.deriv_mat.to_sparse_coo()
-            # # A is stacked over components, [x1, x2, x3, ..., y1, y2, y3, ...]. Repeat mask
-            # self.mask = self.deriv_calc_bc.grad_mask.repeat(2)
-            # # Solve A_bc u_bc + A_main u_main = deriv_val
-            # A_bc = coo_col_select(A, self.mask)
-            # self.A_main = coo_col_select(A, ~self.mask)
-            # #u_bc = self._us.T.flatten()[mask]
-            #
-            # self.A_bc_inv = torch.inverse(A_bc.to_dense())
+
 
     def _cuda_bc(self):
         self.deriv_val = self.deriv_val.cuda(non_blocking=True)
@@ -241,11 +237,10 @@ class UGraphTime(UBase):
 
     def set_bc(self, dirich_bc=None):
         """ Set boundary conditions. """
-        bc_deriv = None
         if dirich_bc is not None:
             dirich_bc = dirich_bc.to(self.device, non_blocking=True)
-            assert dirich_bc.sum() == self.N_dirich, "Dirichlet BC must match number of Dirichlet points."
-            assert dirich_bc.sum() == self.N_dirich, "Dirichlet BC must match number of Dirichlet points."
+            assert self.dirich_mask.sum() == dirich_bc.numel(), "Dirichlet BC must match number of Dirichlet points."
+
             self._us[self.dirich_mask] = dirich_bc
 
         if self.neumann_mode:
@@ -257,8 +252,8 @@ class UGraphTime(UBase):
 
 
 
-    def get_grads(self):
-        grad_dict = self.deriv_calc.derivative(self._us)
+    def get_grads(self, get_orders=None):
+        grad_dict = self.deriv_calc.derivative(self._us, get_orders=get_orders)
         return grad_dict
 
     def get_us_grad(self) -> list[torch.Tensor]:

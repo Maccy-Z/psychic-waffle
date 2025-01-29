@@ -155,9 +155,9 @@ def gen_mesh_time(xmin, xmax, ymin, ymax, areas=None):
         min_area, max_area = areas
 
     circle_center = (0.5, 0.4)
-    circle_radius = 0.1
+    circle_radius = 0.5
 
-    lnscale = np.sqrt(1.5*min_area)
+    bound_ln = np.sqrt(min_area)
     # print(lnscale)
 
     mesh_props = MeshProps(min_area, max_area, lengthscale=0.5)
@@ -167,17 +167,19 @@ def gen_mesh_time(xmin, xmax, ymin, ymax, areas=None):
                 Line([xmin, ymax], [xmax, ymax], True, name="Wall"),     # Top
                 Line([xmin, ymin], [xmin, ymax], True, name="Left"),    # Left
                 Line([xmax, ymax], [xmax, ymin], True, name="Right"),   # Right
-              ]
+        # Circle((1.0, 0.5), circle_radius, lnscale, True, name="Right"),
+
+    ]
     mesh, marker_tags = create_mesh(coords, mesh_props)
     point_props, markers, _ = extract_mesh_data(mesh)
     points, _ = point_props
     p_markers, _ = markers
 
     # Extra layer
-    points = points + 2 * lnscale
-    box_points, box_tags = generate_box_points_spacing(xmax + 2*lnscale, ymax + 2*lnscale, lnscale)
-    bc_points, bc_tags = generate_box_points_spacing(xmax + 4*lnscale, ymax + 4*lnscale, lnscale)
-    box_points = box_points + lnscale
+    points = points + 2 * bound_ln
+    box_points, box_tags = generate_box_points_spacing(xmax + 2*bound_ln, ymax + 2*bound_ln, bound_ln)
+    bc_points, bc_tags = generate_box_points_spacing(xmax + 4*bound_ln, ymax + 4*bound_ln, bound_ln)
+    box_points = box_points + bound_ln
     p_tags = [marker_tags[0] for _ in p_markers]
     box_tags = [marker_tags[0] for _ in box_tags]
     points = np.vstack((points, box_points, bc_points))

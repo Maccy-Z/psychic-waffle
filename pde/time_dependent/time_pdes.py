@@ -6,7 +6,7 @@ from pde.graph_grid.graph_store import P_TimeTypes as TT, P_Types as T
 from pde.config import Config
 from pde.mesh_generation.generate_mesh import gen_mesh_time
 from pde.graph_grid.U_graph import UGraph
-from pde.graph_grid.graph_utils import plot_points
+from pde.graph_grid.graph_utils import plot_points, plot_interp_graph
 from pde.time_dependent.ode_func import ExplicitNS, SemiExplNS
 from pde.time_dependent.time_cfg import ConfigTime
 from pde.time_dependent.U_time_graph import UGraphTime, UTemp
@@ -16,7 +16,7 @@ def mesh_graph(cfg):
 
     xmin, xmax = 0, 3
     ymin, ymax = 0.0, 1.5
-    Xs, p_tags = gen_mesh_time(xmin, xmax, ymin, ymax, areas=[2e-3, 5e-3])
+    Xs, p_tags = gen_mesh_time(xmin, xmax, ymin, ymax, areas=[1e-3, 5e-3])
     Xs = torch.from_numpy(Xs).float()
     c_print(f'Number of mesh points: {len(Xs)}', "green")
 
@@ -27,18 +27,20 @@ def mesh_graph(cfg):
             value = [0 for _ in range(N_comp)]
             setup_T.append(T_Point([TT.FIXED, TT.FIXED], X, init_val=value))
         elif tag == "Left": # or tag == "Left_extra":
-            value = [1, 0]
+            y = X[1]
+            if y < 0.2 or y > 1.5:
+                value = [0, 0]
+            elif 0.4<y<0.6:
+                value = [1.5, 0]
+            else:
+                value = [1, 0]
             setup_T.append(T_Point([TT.FIXED, TT.FIXED], X, init_val=value))
         elif tag == "Right":
             value = [1, 0]
             deriv = [Deriv(comp=[0], orders=[(1, 0)], value=0.), Deriv(comp=[1], orders=[(1, 0)], value=0.)] # dux/dx = 0 and duy/dx = 0
             setup_T.append(T_Point([TT.EXIT, TT.EXIT], X, init_val=value, derivatives=deriv))
-            # # Also add exit ghost nodes
-            # _X = X.clone()
-            # _X[0] += 0.05
-            # setup_T.append(T_Point([TT.EXIT, TT.EXIT], _X, init_val=value))
         elif tag == "Normal"  or tag == "Left_extra" :
-            vx_init = 1 #- (X[0]-0.5)/2.5
+            vx_init = 1 - (X[0]-0.5)/2.5
             value = [vx_init, 0]
 
             setup_T.append(T_Point([TT.NORMAL, TT.NORMAL], X, init_val=value))
@@ -47,8 +49,7 @@ def mesh_graph(cfg):
 
     setup_T = {i: point for i, point in enumerate(setup_T)}
     u_graph_time = UGraphTime(setup_T, N_component=N_comp, grad_acc=2, device=cfg.DEVICE)
-    # plot_points(u_graph_time._Xs, u_graph_time.updt_mask[:, 0], title="grad mask")
-    # exit(9)
+    # plot_points(u_graph_time._Xs, u_graph_time.dirich_mask[:, 0], title="grad mask")
     with open("./save_u_graph_T.pth", "wb") as f:
         torch.save(u_graph_time, f)
 
@@ -107,7 +108,7 @@ class TimePDEBase:
     PDE_timefn: ExplicitNS | SemiExplNS
 
     u_graph_main: UGraphTime
-    u_saves: dict[float, UTemp]
+    u_saves: dict[int, UTemp]
 
     def __init__(self, u_graph_T: UGraphTime, u_graph_PDE: UGraph, cfg_T: ConfigTime, cfg_in: Config):
         """ u_graph_T: Time graph.
@@ -118,8 +119,8 @@ class TimePDEBase:
         self.cfg_T = cfg_T
         self.cfg_in = cfg_in
         self.u_saves = {}
-
-        self.PDE_timefn = SemiExplNS(u_graph_T, u_graph_PDE, cfg_in, cfg_T) #ExplicitNS(u_graph_T, u_graph_PDE, cfg_in, cfg_T)
+        self.Xs = None
+        self.PDE_timefn = ExplicitNS(u_graph_T, u_graph_PDE, cfg_in, cfg_T) #ExplicitNS(u_graph_T, u_graph_PDE, cfg_in, cfg_T)
 
         self.device = "cuda"
         self.dtype = torch.float32
@@ -127,26 +128,30 @@ class TimePDEBase:
     def solve(self):
         cfg_T = self.cfg_T
 
+        self.Xs = self.u_graph_T.get_all_us_Xs()[1]
+        self.u_saves[0] = self.u_graph_T.get_all_us_Xs()[0].clone()
         timesteps = torch.linspace(cfg_T.time_domain[0], cfg_T.time_domain[1], cfg_T.timesteps * cfg_T.substeps, dtype=self.dtype)
-
         for step_num, t in enumerate(timesteps):
-            print(f'{step_num = }, t = {t.item():.3g}')
+            print(f'\n{step_num = }, t = {t.item():.3g}')
 
-            # #Plotting
-            # us, Xs = self.u_graph_T.get_all_us_Xs()
-            # plot_interp_graph(Xs, us[:, 0], title=f"Vx start of Step {step_num}")
-            # plot_interp_graph(Xs, us[:, 1], title=f"Vy- Step {step_num}")
-            # exit(9)
-
-            if step_num % cfg_T.substeps == 0:
-                self.u_saves[t] = self.u_graph_T.get_all_us_Xs()
+            # if step_num == 5:
+            #     dirich_mask = self.u_graph_T.dirich_mask
+            #     dirich_values = torch.zeros_like(self.u_graph_T._us)[dirich_mask]
+            #     print(f'{dirich_values.shape = }')
+            #     self.u_graph_T.set_bc(dirich_bc=dirich_values)
 
             update = self.PDE_timefn.solve(t, step_num)
-            self.u_graph_T.set_grid_irreg(update)
+            self.u_graph_T._us = update # set_grid_irreg(update)
 
-            # us, Xs = self.u_graph_T.get_all_us_Xs()
-            # plot_interp_graph(Xs, us[:, 0], title=f"Vx End of Step {step_num}")
-            # exit(8)
+            if step_num % cfg_T.substeps == 0:
+                self.u_saves[step_num+1] = self.u_graph_T.get_all_us_Xs()[0].clone()
+
+            if step_num == 50:
+                break
+
+        for step, us in self.u_saves.items():
+            plot_interp_graph(self.Xs, us[:, 0], title=f"Vx Step {step}")
+
 
     def update_boundary(self):
         pass
@@ -161,8 +166,8 @@ def main():
     time_cfg= ConfigTime()
     c_print(f'{time_cfg.dt = }', color="bright_magenta")
 
-    #u_g_T, u_g_PDE = load_graph(cfg)
-    u_g_T, u_g_PDE = mesh_graph(cfg)
+    u_g_T, u_g_PDE = load_graph(cfg)
+    #u_g_T, u_g_PDE = mesh_graph(cfg)
 
     time_pde = TimePDEBase(u_g_T, u_g_PDE , time_cfg, cfg)
     time_pde.solve()

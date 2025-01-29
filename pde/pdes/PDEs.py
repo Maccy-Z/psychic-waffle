@@ -43,7 +43,7 @@ class Poisson(PDEFunc):
         dudx, dudy = u_dus[1], u_dus[2]
         d2udx2, d2udxdy, d2udy2 = u_dus[3], u_dus[4], u_dus[5]
 
-        resid = 1 * d2udx2 + 1 * d2udy2 + 0 * dudx + 0 * dudy - 5 * u + 5
+        resid = d2udy2 +  d2udx2 + 0 * dudx + 0 * dudy - 5 * u + 5
         return resid
 
 
@@ -66,7 +66,8 @@ class PressureNS(PDEFunc):
         #resid = grad_Ix * dpdx + grad_Iy * dpdy + 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
         #resid = 1 * d2pdx2 + 1 * d2pdy2 - rhs_val
         #resid = laplacian - rhs_val
-        resid =  0.9 * laplacian +  0.1*(d2pdx2 + d2pdy2) - rhs_val
+        k = 0.1
+        resid =  k * laplacian +  (1 - k)*(d2pdx2 + d2pdy2) - rhs_val
 
 
         return resid
